@@ -252,14 +252,38 @@ final class Phone: Identifiable {
         name = tunnel["interface"].lower()
         return "usb" in name and "network" not in name
 
-    async def main(udid, lat, lon):
-        tunnels = (await get_tunneld_tunnels()).get(udid, [])
-        if not tunnels:
-            sys.exit("tunneld has no tunnel for this iPhone")
-        # A sleeping iPhone drops its Wi-Fi tunnel every few seconds; a USB one stays up, so use it when plugged in.
-        tunnel = max(tunnels, key=over_usb)
+    async def tunneld_rsd(tunnel):
         rsd = RemoteServiceDiscoveryService((tunnel["tunnel-address"], tunnel["tunnel-port"]), name=tunnel["interface"])
         await asyncio.wait_for(rsd.connect(), 20)
+        return rsd
+
+    async def native_rsd(udid):
+        # macOS's own tunnel (the one Xcode's wireless debugging uses), held open by an assertion.
+        from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
+        global native  # keep the tunnel (and its assertion) alive for the whole session
+        native = NativeRemotedTunnel(serial=udid)
+        return await asyncio.wait_for(native.aopen(), 20)
+
+    async def connect(udid):
+        try:
+            tunnels = (await get_tunneld_tunnels()).get(udid, [])
+        except Exception:
+            tunnels = []
+        # A locked iPhone drops tunneld's Wi-Fi tunnel every 20-40 seconds. USB stays up, so use it when
+        # plugged in; otherwise try Apple's tunnel, and tunneld's Wi-Fi one only as a last resort.
+        usb = [t for t in tunnels if over_usb(t)]
+        if usb:
+            return await tunneld_rsd(usb[0]), "USB"
+        try:
+            return await native_rsd(udid), "Apple"
+        except Exception as e:
+            if not tunnels:
+                sys.exit(f"Couldn't reach this iPhone: {e}")
+        return await tunneld_rsd(tunnels[0]), "Wi-Fi"
+
+    async def main(udid, lat, lon):
+        rsd, via = await connect(udid)
+        print(f"Connected via {via} tunnel", flush=True)
         async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as location:
             await asyncio.wait_for(location.set(lat, lon), 20)
             print("Location held. Press Ctrl+C to stop.", flush=True)
@@ -292,7 +316,8 @@ final class Phone: Identifiable {
             return "Cancelled"
         }
         session = p
-        sessionAddresses = tunnelAddresses
+        // Apple's tunnel isn't one of tunneld's, so tunneld's coming and going says nothing about it.
+        sessionAddresses = r.output.contains("via Apple") ? [] : tunnelAddresses
         holding = true
         p.terminationHandler = { [weak self] _ in
             Task { @MainActor in self?.sessionDropped(p) }
@@ -316,7 +341,8 @@ final class Phone: Identifiable {
         show("Connection lost — reconnecting…", error: true)
         while let c = target {
             await manager?.refresh()
-            if connected, await hold(c) == nil {
+            // Not gated on tunneld listing the phone: Apple's tunnel can reach it while tunneld's Wi-Fi one is down.
+            if await hold(c) == nil {
                 show(String(format: "Reconnected — holding %.5f, %.5f", c.latitude, c.longitude), error: false)
                 return
             }
