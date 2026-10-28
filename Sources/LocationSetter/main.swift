@@ -46,7 +46,8 @@ final class Device {
     }
 
     func refresh() async {
-        let which = await Shell.run("command -v pymobiledevice3")
+        // `pip install --user` puts the script in ~/Library/Python/<ver>/bin, which isn't on PATH by default.
+        let which = await Shell.run("PATH=\"$PATH:$(print -rl -- $HOME/Library/Python/*/bin(N) | paste -sd: -)\"; command -v pymobiledevice3")
         toolPath = which.ok && !which.output.isEmpty ? which.output.components(separatedBy: "\n").last : nil
         // tunneld serves a JSON map of connected devices on port 49151.
         if let url = URL(string: "http://127.0.0.1:49151/"),
@@ -65,7 +66,11 @@ final class Device {
         busy = true
         defer { busy = false }
         // Prompts for the admin password with the standard macOS dialog.
-        let shell = "\(Shell.quote(tool)) remote tunneld -d"
+        // Root can't see a `pip install --user` package, so point it at the user's site-packages.
+        let userSite = URL(fileURLWithPath: tool).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("lib/python/site-packages").path
+        let env = FileManager.default.fileExists(atPath: userSite) ? "PYTHONPATH=\(Shell.quote(userSite)) " : ""
+        let shell = "\(env)\(Shell.quote(tool)) remote tunneld -d"
         let script = "do shell script \"\(shell.replacingOccurrences(of: "\"", with: "\\\""))\" with administrator privileges"
         let r = await Shell.run("osascript -e \(Shell.quote(script))")
         if !r.ok { show(r.output.isEmpty ? "Could not start tunnel" : r.output, error: true) }
