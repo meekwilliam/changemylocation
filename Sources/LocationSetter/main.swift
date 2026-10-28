@@ -336,6 +336,8 @@ struct ContentView: View {
     /// The picked spot when no phone is connected yet.
     @State private var draft: Place?
     @State private var searching = false
+    /// Last pointer position over the map, used as the right-click spot.
+    @State private var pointer: CGPoint?
     @FocusState private var searchFocused: Bool
 
     private var phone: Phone? { manager.selectedPhone }
@@ -359,6 +361,43 @@ struct ContentView: View {
                 .mapControls { MapCompass(); MapZoomStepper(); MapScaleView() }
                 .onTapGesture { point in
                     if let c = proxy.convert(point, from: .local) { pick(c) }
+                }
+                // SwiftUI's context menu doesn't report where it was opened, so track the pointer instead.
+                .onContinuousHover { phase in
+                    if case .active(let point) = phase { pointer = point }
+                }
+                .contextMenu {
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        pick(c)
+                        if let phone { Task { await phone.set(c) } }
+                    } label: {
+                        Label("Set Location Here", systemImage: "location.fill")
+                    }
+                    .disabled(!canControl || phone?.busy == true)
+
+                    Button {
+                        if let c = pointerCoordinate(proxy) { pick(c) }
+                    } label: {
+                        Label("Drop Pin Here", systemImage: "mappin")
+                    }
+
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(String(format: "%.6f, %.6f", c.latitude, c.longitude), forType: .string)
+                    } label: {
+                        Label("Copy Coordinates", systemImage: "doc.on.doc")
+                    }
+
+                    Divider()
+
+                    Button {
+                        if let phone { Task { await phone.clear() } }
+                    } label: {
+                        Label("Reset to Real GPS", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(!canControl || phone?.busy == true)
                 }
             }
             .ignoresSafeArea()
@@ -647,6 +686,10 @@ struct ContentView: View {
     }
 
     // MARK: Actions
+
+    private func pointerCoordinate(_ proxy: MapProxy) -> CLLocationCoordinate2D? {
+        pointer.flatMap { proxy.convert($0, from: .local) }
+    }
 
     private func setCurrent(_ place: Place) {
         if let phone { phone.selected = place } else { draft = place }
