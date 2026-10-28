@@ -81,7 +81,12 @@ final class Device {
     /// On iOS 17+ the simulated location only lasts while the `set` session stays open,
     /// so the process is kept running until Reset, a new Set, or the app quits.
     private var session: Process?
-    var holding: Bool { session?.isRunning == true }
+    /// The location the user wants held; nil after Reset. A dropped session is reopened while this is set.
+    private var target: CLLocationCoordinate2D?
+    var holding = false
+    var reconnecting = false
+    /// Whether the iPhone accepts connections over Wi-Fi, so the session survives unplugging. nil = unknown.
+    var wifiEnabled: Bool?
 
     init() {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
@@ -91,20 +96,16 @@ final class Device {
     }
 
     func set(_ c: CLLocationCoordinate2D) async {
-        guard let tool = toolPath else { return }
+        guard toolPath != nil else { return }
         busy = true
         defer { busy = false }
         endSession()
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel '' -- \(c.latitude) \(c.longitude)"]
-        let r = await startSession(p)
-        if r.ok {
-            session = p
-            show(String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude), error: false)
+        target = c
+        if let error = await hold(c) {
+            target = nil
+            show(error, error: true)
         } else {
-            let last = r.output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
-            show(last, error: true)
+            show(String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude), error: false)
         }
     }
 
@@ -113,12 +114,79 @@ final class Device {
         await simulate("clear --tunnel ''", success: "Restored real GPS location")
     }
 
-    private func endSession() {
-        if let s = session, s.isRunning {
-            s.terminate()
-            s.waitUntilExit()
+    func checkWifi() async {
+        guard let tool = toolPath, deviceCount > 0 else { return }
+        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections")
+        if r.output.contains("\"EnableWifiConnections\": true") { wifiEnabled = true }
+        else if r.output.contains("\"EnableWifiConnections\": false") { wifiEnabled = false }
+    }
+
+    func enableWifi() async {
+        guard let tool = toolPath else { return }
+        busy = true
+        defer { busy = false }
+        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections on")
+        if !r.ok { show("Couldn't turn on Wi-Fi sync. Is the iPhone plugged in and unlocked?", error: true) }
+        await checkWifi()
+    }
+
+    /// Opens a session holding `c`. Returns an error message on failure.
+    private func hold(_ c: CLLocationCoordinate2D) async -> String? {
+        guard let tool = toolPath else { return "pymobiledevice3 not installed" }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel '' -- \(c.latitude) \(c.longitude)"]
+        let r = await startSession(p)
+        guard r.ok else {
+            return r.output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
         }
+        // The user may have reset or picked a new spot while this was connecting.
+        guard let t = target, t.latitude == c.latitude, t.longitude == c.longitude else {
+            p.terminate()
+            return "Cancelled"
+        }
+        session = p
+        holding = true
+        p.terminationHandler = { [weak self] _ in
+            Task { @MainActor in self?.sessionDropped(p) }
+        }
+        return nil
+    }
+
+    /// Called when a session ends on its own, e.g. the cable was unplugged.
+    private func sessionDropped(_ p: Process) {
+        guard session === p else { return }
         session = nil
+        holding = false
+        guard target != nil, !reconnecting else { return }
+        Task { await reconnect() }
+    }
+
+    /// Keeps trying to reopen the session (over Wi-Fi once unplugged) until it holds or the user resets.
+    private func reconnect() async {
+        reconnecting = true
+        defer { reconnecting = false }
+        show("Connection lost — reconnecting…", error: true)
+        while let c = target {
+            await refresh()
+            if deviceCount > 0, await hold(c) == nil {
+                show(String(format: "Reconnected — holding %.5f, %.5f", c.latitude, c.longitude), error: false)
+                return
+            }
+            try? await Task.sleep(for: .seconds(3))
+        }
+    }
+
+    private func endSession() {
+        target = nil
+        holding = false
+        if let s = session {
+            session = nil
+            if s.isRunning {
+                s.terminate()
+                s.waitUntilExit()
+            }
+        }
     }
 
     /// Starts the `set` process and returns once it reports the location is held, or it exits with an error.
@@ -235,6 +303,7 @@ struct ContentView: View {
             await device.refresh()
             // Keep the connection status current while the app is open.
             while !Task.isCancelled {
+                if device.wifiEnabled == nil { await device.checkWifi() }
                 try? await Task.sleep(for: .seconds(4))
                 await device.refresh()
             }
@@ -305,9 +374,6 @@ struct ContentView: View {
         GlassEffectContainer(spacing: 12) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
-                    Circle()
-                        .fill(device.ready ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
                     Image(systemName: "iphone")
                     Text(device.statusText).font(.system(size: 13, weight: .medium))
                     Spacer()
@@ -316,6 +382,23 @@ struct ContentView: View {
                             .buttonStyle(.glass)
                             .disabled(device.busy)
                     }
+                }
+
+                if device.wifiEnabled == false {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.slash").foregroundStyle(.orange)
+                        Text("Wi-Fi sync is off, so unplugging drops the location.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Enable Wi-Fi") { Task { await device.enableWifi() } }
+                            .buttonStyle(.glass)
+                            .disabled(device.busy)
+                    }
+                } else if device.wifiEnabled == true {
+                    Label("Wi-Fi sync on", systemImage: "wifi")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
 
                 if device.toolPath == nil {
@@ -377,9 +460,11 @@ struct ContentView: View {
                         .lineLimit(2)
                 }
 
-                if device.holding {
-                    Label("Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
-                          systemImage: "cable.connector")
+                if device.holding || device.reconnecting {
+                    Label(device.wifiEnabled == true
+                          ? "You can unplug. The location holds while the iPhone and Mac share Wi-Fi and this app stays open."
+                          : "Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
+                          systemImage: device.wifiEnabled == true ? "wifi" : "cable.connector")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
