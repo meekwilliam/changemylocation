@@ -500,116 +500,146 @@ struct ContentView: View {
     // MARK: Bottom panel
 
     private var bottomPanel: some View {
-        GlassEffectContainer(spacing: 12) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    Image(systemName: "iphone")
-                    Text(phone.map { "\($0.name) · \(manager.statusText)" } ?? manager.statusText)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                    Spacer()
-                    if manager.toolPath != nil && !manager.tunnelUp {
-                        Button("Start Tunnel") { Task { await manager.startTunnel() } }
-                            .buttonStyle(.glass)
-                            .disabled(manager.busy)
-                    }
-                }
-
-                if let phone, phone.wifiEnabled == false {
-                    HStack(spacing: 8) {
-                        Image(systemName: "wifi.slash").foregroundStyle(.orange)
-                        Text("Wi-Fi sync is off, so unplugging drops the location.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Enable Wi-Fi") { Task { await phone.enableWifi() } }
-                            .buttonStyle(.glass)
-                            .disabled(phone.busy)
-                    }
-                } else if phone?.wifiEnabled == true {
-                    Label("Wi-Fi sync on", systemImage: "wifi")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-
-                if manager.toolPath == nil {
-                    Text("Install it in Terminal:  python3 -m pip install -U pymobiledevice3")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if !manager.message.isEmpty {
-                    Label(manager.message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.orange)
-                        .lineLimit(2)
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(current?.name ?? "No location selected")
-                        .font(.system(size: 20, weight: .bold))
-                    if let current {
-                        if !current.subtitle.isEmpty {
-                            Text(current.subtitle).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
-                        }
-                        Text(String(format: "%.6f, %.6f", current.coordinate.latitude, current.coordinate.longitude))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("Click the map or search above.").font(.system(size: 13)).foregroundStyle(.secondary)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        if let phone, let c = current?.coordinate { Task { await phone.set(c) } }
-                    } label: {
-                        Label("Set Location", systemImage: "location.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(.blue)
-                    .disabled(current == nil || !canControl || phone?.busy == true)
-
-                    Button {
-                        if let phone { Task { await phone.clear() } }
-                    } label: {
-                        Label("Reset", systemImage: "arrow.uturn.backward")
-                            .font(.system(size: 14, weight: .medium))
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 6)
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(!canControl || phone?.busy == true)
-
-                    if phone?.busy == true { ProgressView().controlSize(.small) }
-                }
+        GlassEffectContainer(spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                statusPill
+                locationCard
 
                 if let phone, !phone.message.isEmpty {
-                    Label(phone.message, systemImage: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(phone.messageIsError ? .orange : .green)
-                        .lineLimit(2)
+                    pill(phone.message,
+                         icon: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                         color: phone.messageIsError ? .orange : .green)
                 }
-
+                if !manager.message.isEmpty {
+                    pill(manager.message, icon: "exclamationmark.triangle.fill", color: .orange)
+                }
+                if manager.toolPath == nil {
+                    pill("Install in Terminal: python3 -m pip install -U pymobiledevice3", icon: "terminal", color: .secondary)
+                }
                 if let phone, phone.wifiEnabled != true, phone.holding || phone.reconnecting {
-                    Label("Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
-                          systemImage: "cable.connector")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    pill("Keep the iPhone plugged in and this app open.", icon: "cable.connector", color: .secondary)
                 }
             }
-            .padding(20)
-            .glassEffect(.regular, in: .rect(cornerRadius: 28))
         }
-        .frame(maxWidth: 420)
+        .frame(maxWidth: 400)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.spring(duration: 0.35), value: phone?.message)
+        .animation(.spring(duration: 0.35), value: phone?.holding)
+    }
+
+    private var statusPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: phone?.wifiEnabled == true ? "wifi" : "iphone")
+                .foregroundStyle(.secondary)
+            Text(phone.map { "\($0.name) · \(manager.statusText)" } ?? manager.statusText)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if manager.toolPath != nil && !manager.tunnelUp {
+                Button("Start Tunnel") { Task { await manager.startTunnel() } }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .disabled(manager.busy)
+            } else if let phone, phone.wifiEnabled == false {
+                Button { Task { await phone.enableWifi() } } label: {
+                    Label("Enable Wi-Fi", systemImage: "wifi")
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .disabled(phone.busy)
+            }
+        }
+        .font(.system(size: 13, weight: .medium, design: .rounded))
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .frame(minHeight: 42)
+        .glassEffect(.regular, in: .capsule)
+    }
+
+    private var locationCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle().fill(.blue.gradient)
+                    Image(systemName: phone?.holding == true ? "location.fill" : "mappin")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .frame(width: 46, height: 46)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(current?.name ?? "No location selected")
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                    if let current {
+                        if !current.subtitle.isEmpty {
+                            Text(current.subtitle)
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Text(String(format: "%.6f, %.6f", current.coordinate.latitude, current.coordinate.longitude))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                    } else {
+                        Text("Click the map or search above.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    if let phone, let c = current?.coordinate { Task { await phone.set(c) } }
+                } label: {
+                    HStack(spacing: 8) {
+                        if phone?.busy == true {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "location.fill")
+                        }
+                        Text("Set Location")
+                    }
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(.blue)
+                .disabled(current == nil || !canControl || phone?.busy == true)
+
+                Button {
+                    if let phone { Task { await phone.clear() } }
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .help("Reset to real GPS")
+                .disabled(!canControl || phone?.busy == true)
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+    }
+
+    private func pill(_ text: String, icon: String, color: Color) -> some View {
+        Label(text, systemImage: icon)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(color)
+            .lineLimit(2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .glassEffect(.regular, in: .capsule)
+            .transition(.blurReplace)
     }
 
     private var canControl: Bool {
