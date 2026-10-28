@@ -79,11 +79,16 @@ final class Manager {
 
         // tunneld serves a JSON map of UDID -> tunnels on port 49151.
         var ids: [String] = []
+        var addresses: [String: Set<String>] = [:]
         if let url = URL(string: "http://127.0.0.1:49151/"),
            let (data, _) = try? await URLSession.shared.data(from: url),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             tunnelUp = true
             ids = json.keys.sorted()
+            for (id, tunnels) in json {
+                let list = tunnels as? [[String: Any]] ?? []
+                addresses[id] = Set(list.compactMap { $0["tunnel-address"] as? String })
+            }
         } else {
             tunnelUp = false
         }
@@ -95,6 +100,7 @@ final class Manager {
         for phone in phones {
             phone.connected = ids.contains(phone.id)
             if let name = names[phone.id] { phone.name = name }
+            phone.checkSession(addresses: addresses[phone.id] ?? [])
         }
         // Keep a disconnected phone's tab while it still has a location to hold.
         phones.removeAll { !$0.connected && !$0.wantsHold }
@@ -157,7 +163,20 @@ final class Phone: Identifiable {
     private var target: CLLocationCoordinate2D?
     private weak var manager: Manager?
 
+    /// The phone's current tunnel addresses from tunneld, and the ones the running session was opened on.
+    private var tunnelAddresses: Set<String> = []
+    private var sessionAddresses: Set<String> = []
+
     var wantsHold: Bool { target != nil }
+
+    /// The `set` process just waits for a signal and never notices the phone going away (e.g. powered off),
+    /// so watch tunneld instead: once the tunnel the session used is gone, end it so `reconnect` takes over.
+    func checkSession(addresses: Set<String>) {
+        tunnelAddresses = addresses
+        guard let s = session, s.isRunning, !sessionAddresses.isEmpty,
+              sessionAddresses.isDisjoint(with: addresses) else { return }
+        s.terminate()
+    }
     private var tool: String? { manager?.toolPath }
 
     init(id: String, name: String, manager: Manager) {
@@ -233,6 +252,7 @@ final class Phone: Identifiable {
             return "Cancelled"
         }
         session = p
+        sessionAddresses = tunnelAddresses
         holding = true
         p.terminationHandler = { [weak self] _ in
             Task { @MainActor in self?.sessionDropped(p) }
