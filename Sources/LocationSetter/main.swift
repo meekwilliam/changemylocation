@@ -41,6 +41,19 @@ final class Manager {
     var busy = false
     var message = ""
     private var names: [String: String] = [:]
+    /// Blocks idle system sleep (not display sleep) while any phone holds a location.
+    private var keepAwake: NSObjectProtocol?
+
+    func updateKeepAwake() {
+        let needed = phones.contains { $0.wantsHold }
+        if needed, keepAwake == nil {
+            keepAwake = ProcessInfo.processInfo.beginActivity(
+                options: .idleSystemSleepDisabled, reason: "Holding a simulated iPhone location")
+        } else if !needed, let token = keepAwake {
+            ProcessInfo.processInfo.endActivity(token)
+            keepAwake = nil
+        }
+    }
 
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
 
@@ -86,6 +99,7 @@ final class Manager {
         // Keep a disconnected phone's tab while it still has a location to hold.
         phones.removeAll { !$0.connected && !$0.wantsHold }
         if selectedPhone == nil { selectedID = phones.first?.id }
+        updateKeepAwake()
     }
 
     private func loadNames() async {
@@ -164,6 +178,7 @@ final class Phone: Identifiable {
         } else {
             show(String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude), error: false)
         }
+        manager?.updateKeepAwake()
     }
 
     func clear() async {
@@ -171,6 +186,7 @@ final class Phone: Identifiable {
         busy = true
         defer { busy = false }
         endSession()
+        manager?.updateKeepAwake()
         let r = await Shell.run("\(Shell.quote(tool)) developer dvt simulate-location clear --tunnel \(Shell.quote(id))")
         show(r.ok ? "Restored real GPS location" : lastLine(r.output), error: !r.ok)
     }
@@ -582,11 +598,9 @@ struct ContentView: View {
                         .lineLimit(2)
                 }
 
-                if let phone, phone.holding || phone.reconnecting {
-                    Label(phone.wifiEnabled == true
-                          ? "You can unplug. The location holds while the iPhone and Mac share Wi-Fi and this app stays open."
-                          : "Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
-                          systemImage: phone.wifiEnabled == true ? "wifi" : "cable.connector")
+                if let phone, phone.wifiEnabled != true, phone.holding || phone.reconnecting {
+                    Label("Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
+                          systemImage: "cable.connector")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
