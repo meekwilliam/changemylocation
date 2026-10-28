@@ -242,7 +242,8 @@ final class Phone: Identifiable {
     /// and then idles, so when the phone drops the link (screen off on Wi-Fi) it reverts to real GPS unnoticed.
     /// Here a dead link makes a re-send fail or time out, the script exits, and `reconnect` takes over.
     private static let holdScript = """
-    import asyncio, sys
+    import asyncio, sys, time
+    from pymobiledevice3.exceptions import ConnectionTerminatedError
     from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
     from pymobiledevice3.tunneld.api import get_tunneld_tunnels
     from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
@@ -260,9 +261,16 @@ final class Phone: Identifiable {
     async def native_rsd(udid):
         # macOS's own tunnel (the one Xcode's wireless debugging uses), held open by an assertion.
         from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
-        global native  # keep the tunnel (and its assertion) alive for the whole session
+        global native  # keep the tunnel (and its assertion) alive while it's in use
+        if native is not None:
+            try:
+                await native.aclose()
+            except Exception:
+                pass
         native = NativeRemotedTunnel(serial=udid)
         return await asyncio.wait_for(native.aopen(), 20)
+
+    native = None
 
     async def connect(udid):
         try:
@@ -281,17 +289,64 @@ final class Phone: Identifiable {
                 sys.exit(f"Couldn't reach this iPhone: {e}")
         return await tunneld_rsd(tunnels[0]), "Wi-Fi"
 
-    async def main(udid, lat, lon):
-        rsd, via = await connect(udid)
-        print(f"Connected via {via} tunnel", flush=True)
+    via = "connecting"
+
+    def log(text):
+        import os, time
+        with open(os.path.expanduser("~/Library/Logs/LocationSetter.log"), "a") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text + "\\n")
+
+    async def hold(rsd, lat, lon, ready):
         async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as location:
             await asyncio.wait_for(location.set(lat, lon), 20)
-            print("Location held. Press Ctrl+C to stop.", flush=True)
+            # The phone keeps a single RemoteXPC (RSD) connection, which macOS redials over Wi-Fi, closing
+            # the services opened through ours. The location channel is a connection of its own, so let go
+            # of the RSD one now that the channel is open.
+            if via == "Apple":
+                try:
+                    await rsd.close()
+                except Exception:
+                    pass
+            ready()
             while True:
-                await asyncio.sleep(5)
-                await asyncio.wait_for(location.set(lat, lon), 15)
+                await asyncio.sleep(2)
+                # A healthy phone answers within a second; reopening takes ~2s, so give up on a silent one quickly.
+                await asyncio.wait_for(location.set(lat, lon), 4)
 
-    asyncio.run(main(sys.argv[1], float(sys.argv[2]), float(sys.argv[3])))
+    async def main(udid, lat, lon):
+        global via
+        held, drop = False, None
+        def ready():
+            nonlocal held, drop
+            if not held:
+                print("Location held. Press Ctrl+C to stop.", flush=True)
+            elif drop is not None:
+                log(f"{via}: held again after {time.monotonic() - drop:.1f}s")
+            held, drop = True, None
+        while True:
+            rsd, via = await connect(udid)
+            print(f"Connected via {via} tunnel", flush=True)
+            try:
+                await hold(rsd, lat, lon, ready)
+            except (ConnectionTerminatedError, asyncio.TimeoutError, OSError) as e:
+                # Over Wi-Fi the channel still closes or stops answering now and then. Reopen it right here,
+                # which is much quicker than exiting and having the app start a new session.
+                if via != "Apple" or not held:
+                    raise
+                if drop is None:
+                    log(f"{via}: {type(e).__name__}, reopening")
+                    drop = time.monotonic()
+                await asyncio.sleep(0.5)
+
+    try:
+        asyncio.run(main(sys.argv[1], float(sys.argv[2]), float(sys.argv[3])))
+    except BaseException as e:
+        # Why the session ended, for diagnosing drops: ~/Library/Logs/LocationSetter.log
+        import os, time, traceback
+        if not isinstance(e, (KeyboardInterrupt, SystemExit)):
+            with open(os.path.expanduser("~/Library/Logs/LocationSetter.log"), "a") as log:
+                log.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"{via}: " + "".join(traceback.format_exception_only(type(e), e)))
+        raise
     """
 
     /// The interpreter pymobiledevice3 is installed under, read from the tool's shebang so the script can import it.
