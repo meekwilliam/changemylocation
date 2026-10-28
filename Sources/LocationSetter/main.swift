@@ -25,39 +25,78 @@ enum Shell {
     static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 }
 
-// MARK: - Device
+func lastLine(_ output: String) -> String {
+    output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
+}
 
+// MARK: - Manager
+
+/// Owns the tunnel and the list of connected phones.
 @MainActor @Observable
-final class Device {
+final class Manager {
     var toolPath: String?
     var tunnelUp = false
-    var deviceCount = 0
+    var phones: [Phone] = []
+    var selectedID: String?
     var busy = false
     var message = ""
-    var messageIsError = false
+    private var names: [String: String] = [:]
 
-    var ready: Bool { toolPath != nil && tunnelUp && deviceCount > 0 }
+    var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
 
     var statusText: String {
         if toolPath == nil { return "pymobiledevice3 not installed" }
         if !tunnelUp { return "Tunnel not running" }
-        if deviceCount == 0 { return "No iPhone connected" }
-        return deviceCount == 1 ? "iPhone connected" : "\(deviceCount) devices connected"
+        guard let phone = selectedPhone else { return "No iPhone connected" }
+        if phone.connected { return "Connected" }
+        return phone.reconnecting ? "Reconnecting…" : "Not connected"
+    }
+
+    init() {
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.phones.forEach { $0.endSession() } }
+        }
     }
 
     func refresh() async {
         // `pip install --user` puts the script in ~/Library/Python/<ver>/bin, which isn't on PATH by default.
         let which = await Shell.run("PATH=\"$PATH:$(print -rl -- $HOME/Library/Python/*/bin(N) | paste -sd: -)\"; command -v pymobiledevice3")
         toolPath = which.ok && !which.output.isEmpty ? which.output.components(separatedBy: "\n").last : nil
-        // tunneld serves a JSON map of connected devices on port 49151.
+
+        // tunneld serves a JSON map of UDID -> tunnels on port 49151.
+        var ids: [String] = []
         if let url = URL(string: "http://127.0.0.1:49151/"),
            let (data, _) = try? await URLSession.shared.data(from: url),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             tunnelUp = true
-            deviceCount = json.count
+            ids = json.keys.sorted()
         } else {
             tunnelUp = false
-            deviceCount = 0
+        }
+
+        if ids.contains(where: { names[$0] == nil }) { await loadNames() }
+        for id in ids where !phones.contains(where: { $0.id == id }) {
+            phones.append(Phone(id: id, name: names[id] ?? "iPhone \(id.suffix(4))", manager: self))
+        }
+        for phone in phones {
+            phone.connected = ids.contains(phone.id)
+            if let name = names[phone.id] { phone.name = name }
+        }
+        // Keep a disconnected phone's tab while it still has a location to hold.
+        phones.removeAll { !$0.connected && !$0.wantsHold }
+        if selectedPhone == nil { selectedID = phones.first?.id }
+    }
+
+    private func loadNames() async {
+        guard let tool = toolPath else { return }
+        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) usbmux list 2>/dev/null")
+        guard let data = r.output.data(using: .utf8),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+        for d in list {
+            if let id = d["UniqueDeviceID"] as? String, let name = d["DeviceName"] as? String {
+                names[id] = name
+            }
         }
     }
 
@@ -65,38 +104,56 @@ final class Device {
         guard let tool = toolPath else { return }
         busy = true
         defer { busy = false }
-        // Prompts for the admin password with the standard macOS dialog.
         // Root can't see a `pip install --user` package, so point it at the user's site-packages.
         let userSite = URL(fileURLWithPath: tool).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("lib/python/site-packages").path
         let env = FileManager.default.fileExists(atPath: userSite) ? "PYTHONPATH=\(Shell.quote(userSite)) " : ""
         let shell = "\(env)\(Shell.quote(tool)) remote tunneld -d"
+        // Prompts for the admin password with the standard macOS dialog.
         let script = "do shell script \"\(shell.replacingOccurrences(of: "\"", with: "\\\""))\" with administrator privileges"
         let r = await Shell.run("osascript -e \(Shell.quote(script))")
-        if !r.ok { show(r.output.isEmpty ? "Could not start tunnel" : r.output, error: true) }
+        message = r.ok ? "" : (r.output.isEmpty ? "Could not start tunnel" : r.output)
         try? await Task.sleep(for: .seconds(3))
         await refresh()
     }
+}
+
+// MARK: - Phone
+
+/// One iPhone and the location session holding its simulated position.
+@MainActor @Observable
+final class Phone: Identifiable {
+    let id: String
+    var name: String
+    var connected = true
+    /// The spot picked on the map for this phone (not necessarily set yet).
+    var selected: Place?
+    var holding = false
+    var reconnecting = false
+    /// Whether the iPhone accepts connections over Wi-Fi, so the session survives unplugging. nil = unknown.
+    var wifiEnabled: Bool?
+    var busy = false
+    var message = ""
+    var messageIsError = false
 
     /// On iOS 17+ the simulated location only lasts while the `set` session stays open,
     /// so the process is kept running until Reset, a new Set, or the app quits.
     private var session: Process?
     /// The location the user wants held; nil after Reset. A dropped session is reopened while this is set.
     private var target: CLLocationCoordinate2D?
-    var holding = false
-    var reconnecting = false
-    /// Whether the iPhone accepts connections over Wi-Fi, so the session survives unplugging. nil = unknown.
-    var wifiEnabled: Bool?
+    private weak var manager: Manager?
 
-    init() {
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
-                                               object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.session?.terminate() }
-        }
+    var wantsHold: Bool { target != nil }
+    private var tool: String? { manager?.toolPath }
+
+    init(id: String, name: String, manager: Manager) {
+        self.id = id
+        self.name = name
+        self.manager = manager
     }
 
     func set(_ c: CLLocationCoordinate2D) async {
-        guard toolPath != nil else { return }
+        guard tool != nil else { return }
         busy = true
         defer { busy = false }
         endSession()
@@ -110,36 +167,50 @@ final class Device {
     }
 
     func clear() async {
+        guard let tool else { return }
+        busy = true
+        defer { busy = false }
         endSession()
-        await simulate("clear --tunnel ''", success: "Restored real GPS location")
+        let r = await Shell.run("\(Shell.quote(tool)) developer dvt simulate-location clear --tunnel \(Shell.quote(id))")
+        show(r.ok ? "Restored real GPS location" : lastLine(r.output), error: !r.ok)
     }
 
     func checkWifi() async {
-        guard let tool = toolPath, deviceCount > 0 else { return }
-        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections")
+        guard let tool, connected else { return }
+        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections --udid \(Shell.quote(id))")
         if r.output.contains("\"EnableWifiConnections\": true") { wifiEnabled = true }
         else if r.output.contains("\"EnableWifiConnections\": false") { wifiEnabled = false }
     }
 
     func enableWifi() async {
-        guard let tool = toolPath else { return }
+        guard let tool else { return }
         busy = true
         defer { busy = false }
-        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections on")
+        let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections on --udid \(Shell.quote(id))")
         if !r.ok { show("Couldn't turn on Wi-Fi sync. Is the iPhone plugged in and unlocked?", error: true) }
         await checkWifi()
     }
 
+    func endSession() {
+        target = nil
+        holding = false
+        if let s = session {
+            session = nil
+            if s.isRunning {
+                s.terminate()
+                s.waitUntilExit()
+            }
+        }
+    }
+
     /// Opens a session holding `c`. Returns an error message on failure.
     private func hold(_ c: CLLocationCoordinate2D) async -> String? {
-        guard let tool = toolPath else { return "pymobiledevice3 not installed" }
+        guard let tool else { return "pymobiledevice3 not installed" }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel '' -- \(c.latitude) \(c.longitude)"]
+        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel \(Shell.quote(id)) -- \(c.latitude) \(c.longitude)"]
         let r = await startSession(p)
-        guard r.ok else {
-            return r.output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
-        }
+        guard r.ok else { return lastLine(r.output) }
         // The user may have reset or picked a new spot while this was connecting.
         guard let t = target, t.latitude == c.latitude, t.longitude == c.longitude else {
             p.terminate()
@@ -168,24 +239,12 @@ final class Device {
         defer { reconnecting = false }
         show("Connection lost — reconnecting…", error: true)
         while let c = target {
-            await refresh()
-            if deviceCount > 0, await hold(c) == nil {
+            await manager?.refresh()
+            if connected, await hold(c) == nil {
                 show(String(format: "Reconnected — holding %.5f, %.5f", c.latitude, c.longitude), error: false)
                 return
             }
             try? await Task.sleep(for: .seconds(3))
-        }
-    }
-
-    private func endSession() {
-        target = nil
-        holding = false
-        if let s = session {
-            session = nil
-            if s.isRunning {
-                s.terminate()
-                s.waitUntilExit()
-            }
         }
     }
 
@@ -222,19 +281,6 @@ final class Device {
         }
     }
 
-    private func simulate(_ args: String, success: String) async {
-        guard let tool = toolPath else { return }
-        busy = true
-        defer { busy = false }
-        let r = await Shell.run("\(Shell.quote(tool)) developer dvt simulate-location \(args)")
-        if r.ok {
-            show(success, error: false)
-        } else {
-            let last = r.output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
-            show(last, error: true)
-        }
-    }
-
     private func show(_ text: String, error: Bool) {
         message = text
         messageIsError = error
@@ -265,23 +311,32 @@ func describe(_ item: MKMapItem) -> String {
 // MARK: - Views
 
 struct ContentView: View {
-    @State private var device = Device()
+    @State private var manager = Manager()
     @State private var camera: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)))
     @State private var query = ""
     @State private var results: [Place] = []
-    @State private var selected: Place?
+    /// The picked spot when no phone is connected yet.
+    @State private var draft: Place?
     @State private var searching = false
     @FocusState private var searchFocused: Bool
+
+    private var phone: Phone? { manager.selectedPhone }
+    private var current: Place? { phone?.selected ?? draft }
 
     var body: some View {
         ZStack {
             MapReader { proxy in
                 Map(position: $camera) {
-                    if let selected {
-                        Marker(selected.name, systemImage: "location.fill", coordinate: selected.coordinate)
-                            .tint(.blue)
+                    ForEach(manager.phones) { p in
+                        if let place = p.selected {
+                            Marker(p.name, systemImage: p.holding ? "location.fill" : "mappin", coordinate: place.coordinate)
+                                .tint(p.id == manager.selectedID ? .blue : .gray)
+                        }
+                    }
+                    if phone == nil, let draft {
+                        Marker(draft.name, systemImage: "mappin", coordinate: draft.coordinate).tint(.blue)
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic))
@@ -293,6 +348,7 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 12) {
+                tabBar
                 searchArea
                 Spacer()
                 bottomPanel
@@ -300,14 +356,71 @@ struct ContentView: View {
             .padding(20)
         }
         .task {
-            await device.refresh()
+            await manager.refresh()
             // Keep the connection status current while the app is open.
             while !Task.isCancelled {
-                if device.wifiEnabled == nil { await device.checkWifi() }
+                for p in manager.phones where p.wifiEnabled == nil { await p.checkWifi() }
                 try? await Task.sleep(for: .seconds(4))
-                await device.refresh()
+                await manager.refresh()
             }
         }
+        .onChange(of: manager.selectedID) {
+            results = []
+            if let place = current { fly(to: place.coordinate) }
+        }
+    }
+
+    // MARK: Tabs
+
+    private var tabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    if manager.phones.isEmpty {
+                        Label("No iPhones connected", systemImage: "iphone.slash")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                    ForEach(manager.phones) { p in
+                        tab(for: p)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        // Leave room for the window's traffic-light buttons.
+        .padding(.leading, 60)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func tab(for p: Phone) -> some View {
+        let isSelected = p.id == manager.selectedID
+        return Button {
+            withAnimation(.spring(duration: 0.3)) { manager.selectedID = p.id }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "iphone")
+                Text(p.name).lineLimit(1)
+                if p.reconnecting {
+                    ProgressView().controlSize(.mini)
+                } else if p.holding {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(isSelected ? Color.white : Color.blue)
+                }
+            }
+            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .opacity(p.connected ? 1 : 0.55)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(isSelected ? .regular.tint(.blue).interactive() : .regular.interactive(), in: .capsule)
     }
 
     // MARK: Search
@@ -375,49 +488,58 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
                     Image(systemName: "iphone")
-                    Text(device.statusText).font(.system(size: 13, weight: .medium))
+                    Text(phone.map { "\($0.name) · \(manager.statusText)" } ?? manager.statusText)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
                     Spacer()
-                    if device.toolPath != nil && !device.tunnelUp {
-                        Button("Start Tunnel") { Task { await device.startTunnel() } }
+                    if manager.toolPath != nil && !manager.tunnelUp {
+                        Button("Start Tunnel") { Task { await manager.startTunnel() } }
                             .buttonStyle(.glass)
-                            .disabled(device.busy)
+                            .disabled(manager.busy)
                     }
                 }
 
-                if device.wifiEnabled == false {
+                if let phone, phone.wifiEnabled == false {
                     HStack(spacing: 8) {
                         Image(systemName: "wifi.slash").foregroundStyle(.orange)
                         Text("Wi-Fi sync is off, so unplugging drops the location.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Enable Wi-Fi") { Task { await device.enableWifi() } }
+                        Button("Enable Wi-Fi") { Task { await phone.enableWifi() } }
                             .buttonStyle(.glass)
-                            .disabled(device.busy)
+                            .disabled(phone.busy)
                     }
-                } else if device.wifiEnabled == true {
+                } else if phone?.wifiEnabled == true {
                     Label("Wi-Fi sync on", systemImage: "wifi")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
 
-                if device.toolPath == nil {
+                if manager.toolPath == nil {
                     Text("Install it in Terminal:  python3 -m pip install -U pymobiledevice3")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
 
+                if !manager.message.isEmpty {
+                    Label(manager.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+
                 Divider()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(selected?.name ?? "No location selected")
+                    Text(current?.name ?? "No location selected")
                         .font(.system(size: 20, weight: .bold))
-                    if let selected {
-                        if !selected.subtitle.isEmpty {
-                            Text(selected.subtitle).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
+                    if let current {
+                        if !current.subtitle.isEmpty {
+                            Text(current.subtitle).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
                         }
-                        Text(String(format: "%.6f, %.6f", selected.coordinate.latitude, selected.coordinate.longitude))
+                        Text(String(format: "%.6f, %.6f", current.coordinate.latitude, current.coordinate.longitude))
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -428,7 +550,7 @@ struct ContentView: View {
 
                 HStack(spacing: 10) {
                     Button {
-                        if let c = selected?.coordinate { Task { await device.set(c) } }
+                        if let phone, let c = current?.coordinate { Task { await phone.set(c) } }
                     } label: {
                         Label("Set Location", systemImage: "location.fill")
                             .font(.system(size: 14, weight: .semibold))
@@ -437,10 +559,10 @@ struct ContentView: View {
                     }
                     .buttonStyle(.glassProminent)
                     .tint(.blue)
-                    .disabled(selected == nil || !device.ready || device.busy)
+                    .disabled(current == nil || !canControl || phone?.busy == true)
 
                     Button {
-                        Task { await device.clear() }
+                        if let phone { Task { await phone.clear() } }
                     } label: {
                         Label("Reset", systemImage: "arrow.uturn.backward")
                             .font(.system(size: 14, weight: .medium))
@@ -448,23 +570,23 @@ struct ContentView: View {
                             .padding(.horizontal, 6)
                     }
                     .buttonStyle(.glass)
-                    .disabled(!device.ready || device.busy)
+                    .disabled(!canControl || phone?.busy == true)
 
-                    if device.busy { ProgressView().controlSize(.small) }
+                    if phone?.busy == true { ProgressView().controlSize(.small) }
                 }
 
-                if !device.message.isEmpty {
-                    Label(device.message, systemImage: device.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                if let phone, !phone.message.isEmpty {
+                    Label(phone.message, systemImage: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(device.messageIsError ? .orange : .green)
+                        .foregroundStyle(phone.messageIsError ? .orange : .green)
                         .lineLimit(2)
                 }
 
-                if device.holding || device.reconnecting {
-                    Label(device.wifiEnabled == true
+                if let phone, phone.holding || phone.reconnecting {
+                    Label(phone.wifiEnabled == true
                           ? "You can unplug. The location holds while the iPhone and Mac share Wi-Fi and this app stays open."
                           : "Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
-                          systemImage: device.wifiEnabled == true ? "wifi" : "cable.connector")
+                          systemImage: phone.wifiEnabled == true ? "wifi" : "cable.connector")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -476,7 +598,21 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var canControl: Bool {
+        manager.toolPath != nil && manager.tunnelUp && phone?.connected == true
+    }
+
     // MARK: Actions
+
+    private func setCurrent(_ place: Place) {
+        if let phone { phone.selected = place } else { draft = place }
+    }
+
+    private func fly(to c: CLLocationCoordinate2D) {
+        withAnimation(.easeInOut(duration: 0.8)) {
+            camera = .region(MKCoordinateRegion(center: c, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
+        }
+    }
 
     private func search() async {
         let text = query.trimmingCharacters(in: .whitespaces)
@@ -484,6 +620,7 @@ struct ContentView: View {
         if let c = parseCoordinate(text) {
             results = []
             pick(c)
+            fly(to: c)
             return
         }
         searching = true
@@ -497,24 +634,21 @@ struct ContentView: View {
     }
 
     private func choose(_ place: Place) {
-        selected = place
+        setCurrent(place)
         results = []
         searchFocused = false
-        withAnimation(.easeInOut(duration: 0.8)) {
-            camera = .region(MKCoordinateRegion(center: place.coordinate,
-                                                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
-        }
+        fly(to: place.coordinate)
     }
 
     /// Selects a raw coordinate and fills in its address in the background.
     private func pick(_ c: CLLocationCoordinate2D) {
         let place = Place(name: "Dropped Pin", subtitle: "", coordinate: c)
-        selected = place
+        setCurrent(place)
         Task {
             guard let request = MKReverseGeocodingRequest(location: CLLocation(latitude: c.latitude, longitude: c.longitude)),
                   let item = try? await request.mapItems.first,
-                  selected == place else { return }
-            selected = Place(name: item.name ?? "Dropped Pin", subtitle: describe(item), coordinate: c)
+                  current == place else { return }
+            setCurrent(Place(name: item.name ?? "Dropped Pin", subtitle: describe(item), coordinate: c))
         }
     }
 }
@@ -530,9 +664,9 @@ struct LocationSetterApp: App {
     var body: some Scene {
         WindowGroup("Location Setter") {
             ContentView()
-                .frame(minWidth: 760, minHeight: 560)
+                .frame(minWidth: 760, minHeight: 600)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1100, height: 760)
+        .defaultSize(width: 1100, height: 780)
     }
 }
