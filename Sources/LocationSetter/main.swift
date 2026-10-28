@@ -45,7 +45,6 @@ final class Manager {
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
 
     var statusText: String {
-        if selectedPhone?.isSimulator == true { return "Simulator" }
         if toolPath == nil { return "pymobiledevice3 not installed" }
         if !tunnelUp { return "Tunnel not running" }
         guard let phone = selectedPhone else { return "No iPhone connected" }
@@ -80,37 +79,13 @@ final class Manager {
         for id in ids where !phones.contains(where: { $0.id == id }) {
             phones.append(Phone(id: id, name: names[id] ?? "iPhone \(id.suffix(4))", manager: self))
         }
-
-        let sims = await bootedSimulators()
-        for (id, name) in sims where !phones.contains(where: { $0.id == id }) {
-            phones.append(Phone(id: id, name: name, manager: self, isSimulator: true))
-        }
-
         for phone in phones {
-            if phone.isSimulator {
-                phone.connected = sims.contains { $0.id == phone.id }
-                continue
-            }
             phone.connected = ids.contains(phone.id)
             if let name = names[phone.id] { phone.name = name }
         }
         // Keep a disconnected phone's tab while it still has a location to hold.
         phones.removeAll { !$0.connected && !$0.wantsHold }
         if selectedPhone == nil { selectedID = phones.first?.id }
-    }
-
-    /// Booted iOS Simulators as (UDID, name), so several "phones" can be tested on one Mac.
-    private func bootedSimulators() async -> [(id: String, name: String)] {
-        let r = await Shell.run("xcrun simctl list devices booted -j 2>/dev/null")
-        guard r.ok, let data = r.output.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let runtimes = json["devices"] as? [String: [[String: Any]]] else { return [] }
-        return runtimes.values.flatMap { $0 }
-            .compactMap { d in
-                guard let id = d["udid"] as? String, let name = d["name"] as? String else { return nil }
-                return (id, name)
-            }
-            .sorted { $0.name < $1.name }
     }
 
     private func loadNames() async {
@@ -150,8 +125,6 @@ final class Manager {
 final class Phone: Identifiable {
     let id: String
     var name: String
-    /// Simulators are driven with `simctl`, which holds the location without a session.
-    let isSimulator: Bool
     var connected = true
     /// The spot picked on the map for this phone (not necessarily set yet).
     var selected: Place?
@@ -173,20 +146,13 @@ final class Phone: Identifiable {
     var wantsHold: Bool { target != nil }
     private var tool: String? { manager?.toolPath }
 
-    init(id: String, name: String, manager: Manager, isSimulator: Bool = false) {
+    init(id: String, name: String, manager: Manager) {
         self.id = id
         self.name = name
         self.manager = manager
-        self.isSimulator = isSimulator
     }
 
     func set(_ c: CLLocationCoordinate2D) async {
-        if isSimulator {
-            await simctl("set \(c.latitude),\(c.longitude)",
-                         success: String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude))
-            holding = !messageIsError
-            return
-        }
         guard tool != nil else { return }
         busy = true
         defer { busy = false }
@@ -201,11 +167,6 @@ final class Phone: Identifiable {
     }
 
     func clear() async {
-        if isSimulator {
-            await simctl("clear", success: "Cleared simulated location")
-            holding = false
-            return
-        }
         guard let tool else { return }
         busy = true
         defer { busy = false }
@@ -214,15 +175,8 @@ final class Phone: Identifiable {
         show(r.ok ? "Restored real GPS location" : lastLine(r.output), error: !r.ok)
     }
 
-    private func simctl(_ args: String, success: String) async {
-        busy = true
-        defer { busy = false }
-        let r = await Shell.run("xcrun simctl location \(Shell.quote(id)) \(args)")
-        show(r.ok ? success : lastLine(r.output), error: !r.ok)
-    }
-
     func checkWifi() async {
-        guard let tool, connected, !isSimulator else { return }
+        guard let tool, connected else { return }
         let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections --udid \(Shell.quote(id))")
         if r.output.contains("\"EnableWifiConnections\": true") { wifiEnabled = true }
         else if r.output.contains("\"EnableWifiConnections\": false") { wifiEnabled = false }
@@ -448,15 +402,8 @@ struct ContentView: View {
             withAnimation(.spring(duration: 0.3)) { manager.selectedID = p.id }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: p.isSimulator ? "macwindow" : "iphone")
+                Image(systemName: "iphone")
                 Text(p.name).lineLimit(1)
-                if p.isSimulator {
-                    Text("SIM")
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.secondary.opacity(0.25), in: Capsule())
-                }
                 if p.reconnecting {
                     ProgressView().controlSize(.mini)
                 } else if p.holding {
@@ -635,7 +582,7 @@ struct ContentView: View {
                         .lineLimit(2)
                 }
 
-                if let phone, !phone.isSimulator, phone.holding || phone.reconnecting {
+                if let phone, phone.holding || phone.reconnecting {
                     Label(phone.wifiEnabled == true
                           ? "You can unplug. The location holds while the iPhone and Mac share Wi-Fi and this app stays open."
                           : "Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
@@ -652,8 +599,7 @@ struct ContentView: View {
     }
 
     private var canControl: Bool {
-        guard let phone, phone.connected else { return false }
-        return phone.isSimulator || (manager.toolPath != nil && manager.tunnelUp)
+        manager.toolPath != nil && manager.tunnelUp && phone?.connected == true
     }
 
     // MARK: Actions
