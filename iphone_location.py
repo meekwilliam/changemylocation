@@ -51,8 +51,9 @@ def main():
         return
     else:
         sys.exit(__doc__ + "\nPresets: " + ", ".join(PRESETS))
+    # On iOS 17+ the location only holds while this command keeps running.
+    print(f"Setting location to {lat}, {lon}. Keep this running; press Ctrl+C to stop.")
     run(["set", "--", str(lat), str(lon)])
-    print(f"Location set to {lat}, {lon}. Run `clear` to restore.")
 
 
 if __name__ == "__main__":

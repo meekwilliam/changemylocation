@@ -78,13 +78,80 @@ final class Device {
         await refresh()
     }
 
+    /// On iOS 17+ the simulated location only lasts while the `set` session stays open,
+    /// so the process is kept running until Reset, a new Set, or the app quits.
+    private var session: Process?
+    var holding: Bool { session?.isRunning == true }
+
+    init() {
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.session?.terminate() }
+        }
+    }
+
     func set(_ c: CLLocationCoordinate2D) async {
-        await simulate("set --tunnel '' -- \(c.latitude) \(c.longitude)",
-                       success: String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude))
+        guard let tool = toolPath else { return }
+        busy = true
+        defer { busy = false }
+        endSession()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel '' -- \(c.latitude) \(c.longitude)"]
+        let r = await startSession(p)
+        if r.ok {
+            session = p
+            show(String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude), error: false)
+        } else {
+            let last = r.output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
+            show(last, error: true)
+        }
     }
 
     func clear() async {
+        endSession()
         await simulate("clear --tunnel ''", success: "Restored real GPS location")
+    }
+
+    private func endSession() {
+        if let s = session, s.isRunning {
+            s.terminate()
+            s.waitUntilExit()
+        }
+        session = nil
+    }
+
+    /// Starts the `set` process and returns once it reports the location is held, or it exits with an error.
+    private func startSession(_ p: Process) async -> (ok: Bool, output: String) {
+        await withCheckedContinuation { cont in
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = pipe
+            let lock = NSLock()
+            var buffer = ""
+            var done = false
+            func finish(_ ok: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !done else { return }
+                done = true
+                cont.resume(returning: (ok, buffer))
+            }
+            pipe.fileHandleForReading.readabilityHandler = { h in
+                let data = h.availableData
+                if data.isEmpty { h.readabilityHandler = nil; return }
+                lock.lock()
+                buffer += String(decoding: data, as: UTF8.self)
+                let ready = buffer.contains("Press Ctrl+C")
+                lock.unlock()
+                if ready { finish(true) }
+            }
+            p.terminationHandler = { _ in
+                // Let any final output land before reporting the failure.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { finish(false) }
+            }
+            do { try p.run() } catch { finish(false) }
+        }
     }
 
     private func simulate(_ args: String, success: String) async {
@@ -308,6 +375,13 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(device.messageIsError ? .orange : .green)
                         .lineLimit(2)
+                }
+
+                if device.holding {
+                    Label("Keep the iPhone plugged in and this app open. Unplugging or quitting returns it to real GPS.",
+                          systemImage: "cable.connector")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(20)
