@@ -243,14 +243,23 @@ final class Phone: Identifiable {
     /// Here a dead link makes a re-send fail or time out, the script exits, and `reconnect` takes over.
     private static let holdScript = """
     import asyncio, sys
-    from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
+    from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+    from pymobiledevice3.tunneld.api import get_tunneld_tunnels
     from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
     from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 
+    def over_usb(tunnel):
+        name = tunnel["interface"].lower()
+        return "usb" in name and "network" not in name
+
     async def main(udid, lat, lon):
-        rsd = await get_tunneld_device_by_udid(udid)
-        if rsd is None:
+        tunnels = (await get_tunneld_tunnels()).get(udid, [])
+        if not tunnels:
             sys.exit("tunneld has no tunnel for this iPhone")
+        # A sleeping iPhone drops its Wi-Fi tunnel every few seconds; a USB one stays up, so use it when plugged in.
+        tunnel = max(tunnels, key=over_usb)
+        rsd = RemoteServiceDiscoveryService((tunnel["tunnel-address"], tunnel["tunnel-port"]), name=tunnel["interface"])
+        await asyncio.wait_for(rsd.connect(), 20)
         async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as location:
             await asyncio.wait_for(location.set(lat, lon), 20)
             print("Location held. Press Ctrl+C to stop.", flush=True)
