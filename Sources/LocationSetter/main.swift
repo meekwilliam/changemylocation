@@ -238,12 +238,43 @@ final class Phone: Identifiable {
         }
     }
 
+    /// Holds a location like `simulate-location set`, but re-sends it every few seconds. The CLI sends it once
+    /// and then idles, so when the phone drops the link (screen off on Wi-Fi) it reverts to real GPS unnoticed.
+    /// Here a dead link makes a re-send fail or time out, the script exits, and `reconnect` takes over.
+    private static let holdScript = """
+    import asyncio, sys
+    from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid
+    from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
+    from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+
+    async def main(udid, lat, lon):
+        rsd = await get_tunneld_device_by_udid(udid)
+        if rsd is None:
+            sys.exit("tunneld has no tunnel for this iPhone")
+        async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as location:
+            await asyncio.wait_for(location.set(lat, lon), 20)
+            print("Location held. Press Ctrl+C to stop.", flush=True)
+            while True:
+                await asyncio.sleep(5)
+                await asyncio.wait_for(location.set(lat, lon), 15)
+
+    asyncio.run(main(sys.argv[1], float(sys.argv[2]), float(sys.argv[3])))
+    """
+
+    /// The interpreter pymobiledevice3 is installed under, read from the tool's shebang so the script can import it.
+    private var python: String? {
+        guard let tool, let script = try? String(contentsOfFile: tool, encoding: .utf8),
+              let first = script.split(separator: "\n").first, first.hasPrefix("#!") else { return nil }
+        return first.dropFirst(2).split(separator: " ").map { Shell.quote(String($0)) }.joined(separator: " ")
+    }
+
     /// Opens a session holding `c`. Returns an error message on failure.
     private func hold(_ c: CLLocationCoordinate2D) async -> String? {
-        guard let tool else { return "pymobiledevice3 not installed" }
+        guard tool != nil else { return "pymobiledevice3 not installed" }
+        guard let python else { return "Couldn't find pymobiledevice3's Python" }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1; exec \(Shell.quote(tool)) developer dvt simulate-location set --tunnel \(Shell.quote(id)) -- \(c.latitude) \(c.longitude)"]
+        p.arguments = ["-lc", "export PYTHONUNBUFFERED=1 PYTHONWARNINGS=ignore; exec \(python) -c \(Shell.quote(Self.holdScript)) \(Shell.quote(id)) \(c.latitude) \(c.longitude)"]
         let r = await startSession(p)
         guard r.ok else { return lastLine(r.output) }
         // The user may have reset or picked a new spot while this was connecting.
