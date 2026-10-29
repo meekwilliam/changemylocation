@@ -220,8 +220,13 @@ final class Phone: Identifiable {
         endSession()
         target = c
         if let error = await hold(c) {
-            target = nil
-            show(error, error: true)
+            // A newer Set or Reset already took over.
+            guard error != "Cancelled", target != nil else { return }
+            // A locked phone on Wi-Fi can be unreachable for a while; keep the location and keep trying
+            // (Reset stops it) instead of giving up after one attempt.
+            note("couldn't start the session (\(error)); retrying until it connects")
+            show("Can't reach \(name) yet — retrying… (\(error))", error: true)
+            Task { await reconnect() }
         } else {
             show(String(format: "Location set to %.5f, %.5f", c.latitude, c.longitude), error: false)
         }
@@ -313,12 +318,16 @@ final class Phone: Identifiable {
         usb = [t for t in tunnels if over_usb(t)]
         if usb:
             return await tunneld_rsd(usb[0]), "USB"
-        try:
-            return await native_rsd(udid), "Apple"
-        except Exception as e:
-            if not tunnels:
-                log(f"exiting: Apple's tunnel failed ({type(e).__name__}: {e}) and tunneld has no tunnel")
-                sys.exit(f"Couldn't reach this iPhone: {e}")
+        # A locked phone can go unseen by macOS for a while, so give Apple's tunnel a few tries.
+        for attempt in range(3):
+            try:
+                return await native_rsd(udid), "Apple"
+            except Exception as e:
+                error = e
+                await asyncio.sleep(2)
+        if not tunnels:
+            log(f"exiting: Apple's tunnel failed 3 times ({type(error).__name__}: {error}) and tunneld has no tunnel")
+            sys.exit(f"Couldn't reach this iPhone: {error}")
         return await tunneld_rsd(tunnels[0]), "Wi-Fi"
 
     via = "connecting"
