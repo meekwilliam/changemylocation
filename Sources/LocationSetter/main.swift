@@ -68,7 +68,12 @@ final class Manager {
     init() {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
                                                object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.phones.forEach { $0.endSession() } }
+            MainActor.assumeIsolated {
+                self?.phones.forEach { phone in
+                    if phone.wantsHold { phone.note("app quitting; ending session") }
+                    phone.endSession()
+                }
+            }
         }
     }
 
@@ -180,7 +185,23 @@ final class Phone: Identifiable {
         tunnelAddresses = addresses
         guard let s = session, s.isRunning, !sessionAddresses.isEmpty,
               sessionAddresses.isDisjoint(with: addresses) else { return }
+        note("tunneld's tunnel for this session went away; ending it")
         s.terminate()
+    }
+
+    /// Records why a session started or ended in ~/Library/Logs/LocationSetter.log, next to the hold script's lines.
+    func note(_ text: String) {
+        let format = DateFormatter()
+        format.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let line = "\(format.string(from: Date())) [\(id.suffix(4))] app: \(text)\n"
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/LocationSetter.log")
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(Data(line.utf8))
+            try? h.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
     }
     private var tool: String? { manager?.toolPath }
 
@@ -194,6 +215,8 @@ final class Phone: Identifiable {
         guard tool != nil else { return }
         busy = true
         defer { busy = false }
+        note(String(format: "Set Location pressed (%.5f, %.5f)%@", c.latitude, c.longitude,
+                    session != nil ? "; replacing the running session" : ""))
         endSession()
         target = c
         if let error = await hold(c) {
@@ -209,6 +232,7 @@ final class Phone: Identifiable {
         guard let tool else { return }
         busy = true
         defer { busy = false }
+        note("Reset pressed")
         endSession()
         manager?.updateKeepAwake()
         // Closing the session already restores real GPS; `clear` is a backstop that needs a tunneld tunnel.
@@ -293,6 +317,7 @@ final class Phone: Identifiable {
             return await native_rsd(udid), "Apple"
         except Exception as e:
             if not tunnels:
+                log(f"exiting: Apple's tunnel failed ({type(e).__name__}: {e}) and tunneld has no tunnel")
                 sys.exit(f"Couldn't reach this iPhone: {e}")
         return await tunneld_rsd(tunnels[0]), "Wi-Fi"
 
@@ -300,9 +325,9 @@ final class Phone: Identifiable {
     app = os.getppid()
 
     def log(text):
-        import os, time
+        # ~/Library/Logs/LocationSetter.log, shared with the app; lines are tagged with the phone's UDID tail.
         with open(os.path.expanduser("~/Library/Logs/LocationSetter.log"), "a") as f:
-            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + text + "\\n")
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"[{sys.argv[1][-4:]}] {via}: {text}\\n")
 
     async def hold(rsd, lat, lon, ready):
         async with DvtProvider(rsd) as dvt, LocationSimulation(dvt) as location:
@@ -320,6 +345,7 @@ final class Phone: Identifiable {
                 await asyncio.sleep(2)
                 # The app ends sessions on a normal quit; if it's force-quit or crashes, don't hold on orphaned.
                 if os.getppid() != app:
+                    log("exiting: the app that started this session is gone")
                     sys.exit(0)
                 # A healthy phone answers within a second; reopening takes ~2s, so give up on a silent one quickly.
                 await asyncio.wait_for(location.set(lat, lon), 4)
@@ -332,7 +358,7 @@ final class Phone: Identifiable {
             if not held:
                 print("Location held. Press Ctrl+C to stop.", flush=True)
             elif drop is not None:
-                log(f"{via}: held again after {time.monotonic() - drop:.1f}s")
+                log(f"held again after {time.monotonic() - drop:.1f}s")
             held, drop = True, None
         while True:
             rsd, via = await connect(udid)
@@ -345,18 +371,17 @@ final class Phone: Identifiable {
                 if via != "Apple" or not held:
                     raise
                 if drop is None:
-                    log(f"{via}: {type(e).__name__}, reopening")
+                    log(f"{type(e).__name__}, reopening")
                     drop = time.monotonic()
                 await asyncio.sleep(0.5)
 
     try:
         asyncio.run(main(sys.argv[1], float(sys.argv[2]), float(sys.argv[3])))
     except BaseException as e:
-        # Why the session ended, for diagnosing drops: ~/Library/Logs/LocationSetter.log
-        import os, time, traceback
+        # Why the session ended, for diagnosing drops. Deliberate exits log their own reason first.
         if not isinstance(e, (KeyboardInterrupt, SystemExit)):
-            with open(os.path.expanduser("~/Library/Logs/LocationSetter.log"), "a") as log:
-                log.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"{via}: " + "".join(traceback.format_exception_only(type(e), e)))
+            import traceback
+            log("exiting: " + "".join(traceback.format_exception_only(type(e), e)).strip())
         raise
     """
 
@@ -378,6 +403,7 @@ final class Phone: Identifiable {
         guard r.ok else { return lastLine(r.output) }
         // The user may have reset or picked a new spot while this was connecting.
         guard let t = target, t.latitude == c.latitude, t.longitude == c.longitude else {
+            note("a newer Set/Reset came in while this session was connecting; dropping it")
             p.terminate()
             return "Cancelled"
         }
@@ -394,6 +420,8 @@ final class Phone: Identifiable {
     /// Called when a session ends on its own, e.g. the cable was unplugged.
     private func sessionDropped(_ p: Process) {
         guard session === p else { return }
+        let how = p.terminationReason == .uncaughtSignal ? "signal" : "status"
+        note("session ended on its own (\(how) \(p.terminationStatus))\(target != nil ? "; reconnecting" : "")")
         session = nil
         holding = false
         guard target != nil, !reconnecting else { return }
