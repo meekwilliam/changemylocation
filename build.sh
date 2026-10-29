@@ -1,9 +1,9 @@
 #!/bin/zsh
-# Builds Location Setter.app next to this script.
+# Builds imsomeeked.app next to this script.
 set -e
 cd "$(dirname "$0")"
 swift build -c release
-APP="Location Setter.app"
+APP="imsomeeked.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/LocationSetter "$APP/Contents/MacOS/"

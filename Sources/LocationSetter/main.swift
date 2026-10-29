@@ -965,7 +965,7 @@ struct LocationSetterApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Location Setter") {
+        WindowGroup("imsomeeked") {
             ContentView()
                 .frame(minWidth: 760, minHeight: 600)
         }
