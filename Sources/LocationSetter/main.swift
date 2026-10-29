@@ -93,7 +93,9 @@ final class Manager {
             tunnelUp = false
         }
 
-        if ids.contains(where: { names[$0] == nil }) { await loadNames() }
+        // tunneld doesn't always make a tunnel (it never has over USB for iOS 27), but the hold script can
+        // reach any trusted phone the Mac sees through Apple's own tunnel, so list those too.
+        for id in await loadDevices() where !ids.contains(id) { ids.append(id) }
         for id in ids where !phones.contains(where: { $0.id == id }) {
             phones.append(Phone(id: id, name: names[id] ?? "iPhone \(id.suffix(4))", manager: self))
         }
@@ -108,16 +110,19 @@ final class Manager {
         updateKeepAwake()
     }
 
-    private func loadNames() async {
-        guard let tool = toolPath else { return }
+    /// The phones usbmux sees (USB or Wi-Fi), recording their names. Returns their UDIDs.
+    private func loadDevices() async -> [String] {
+        guard let tool = toolPath else { return [] }
         let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) usbmux list 2>/dev/null")
         guard let data = r.output.data(using: .utf8),
-              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        var ids: [String] = []
         for d in list {
-            if let id = d["UniqueDeviceID"] as? String, let name = d["DeviceName"] as? String {
-                names[id] = name
-            }
+            guard let id = d["UniqueDeviceID"] as? String else { continue }
+            if let name = d["DeviceName"] as? String { names[id] = name }
+            if !ids.contains(id) { ids.append(id) }
         }
+        return ids.sorted()
     }
 
     func startTunnel() async {
@@ -206,6 +211,8 @@ final class Phone: Identifiable {
         defer { busy = false }
         endSession()
         manager?.updateKeepAwake()
+        // Closing the session already restores real GPS; `clear` is a backstop that needs a tunneld tunnel.
+        guard !tunnelAddresses.isEmpty else { return show("Restored real GPS location", error: false) }
         let r = await Shell.run("\(Shell.quote(tool)) developer dvt simulate-location clear --tunnel \(Shell.quote(id))")
         show(r.ok ? "Restored real GPS location" : lastLine(r.output), error: !r.ok)
     }
@@ -242,7 +249,7 @@ final class Phone: Identifiable {
     /// and then idles, so when the phone drops the link (screen off on Wi-Fi) it reverts to real GPS unnoticed.
     /// Here a dead link makes a re-send fail or time out, the script exits, and `reconnect` takes over.
     private static let holdScript = """
-    import asyncio, sys, time
+    import asyncio, os, sys, time
     from pymobiledevice3.exceptions import ConnectionTerminatedError
     from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
     from pymobiledevice3.tunneld.api import get_tunneld_tunnels
@@ -290,6 +297,7 @@ final class Phone: Identifiable {
         return await tunneld_rsd(tunnels[0]), "Wi-Fi"
 
     via = "connecting"
+    app = os.getppid()
 
     def log(text):
         import os, time
@@ -310,6 +318,9 @@ final class Phone: Identifiable {
             ready()
             while True:
                 await asyncio.sleep(2)
+                # The app ends sessions on a normal quit; if it's force-quit or crashes, don't hold on orphaned.
+                if os.getppid() != app:
+                    sys.exit(0)
                 # A healthy phone answers within a second; reopening takes ~2s, so give up on a silent one quickly.
                 await asyncio.wait_for(location.set(lat, lon), 4)
 
