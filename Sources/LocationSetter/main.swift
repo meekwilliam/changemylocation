@@ -213,6 +213,11 @@ final class Phone: Identifiable {
 
     func set(_ c: CLLocationCoordinate2D) async {
         guard tool != nil else { return }
+        // Already holding (or reconnecting to) this exact spot: replacing the session would only drop it briefly.
+        if let t = target, t.latitude == c.latitude, t.longitude == c.longitude, holding || reconnecting {
+            note(String(format: "Set Location pressed again for the spot already held (%.5f, %.5f); ignored", c.latitude, c.longitude))
+            return
+        }
         busy = true
         defer { busy = false }
         note(String(format: "Set Location pressed (%.5f, %.5f)%@", c.latitude, c.longitude,
@@ -268,8 +273,15 @@ final class Phone: Identifiable {
         if let s = session {
             session = nil
             if s.isRunning {
+                // The hold script closes its location channel and releases Apple's tunnel on SIGTERM; let it
+                // finish so the next session doesn't open against a half-closed one, but don't hang on it.
                 s.terminate()
-                s.waitUntilExit()
+                let deadline = Date().addingTimeInterval(3)
+                while s.isRunning && Date() < deadline { usleep(50_000) }
+                if s.isRunning {
+                    kill(s.processIdentifier, SIGKILL)
+                    s.waitUntilExit()
+                }
             }
         }
     }
@@ -278,7 +290,7 @@ final class Phone: Identifiable {
     /// and then idles, so when the phone drops the link (screen off on Wi-Fi) it reverts to real GPS unnoticed.
     /// Here a dead link makes a re-send fail or time out, the script exits, and `reconnect` takes over.
     private static let holdScript = """
-    import asyncio, os, sys, time
+    import asyncio, os, signal, sys, time
     from pymobiledevice3.exceptions import ConnectionTerminatedError
     from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
     from pymobiledevice3.tunneld.api import get_tunneld_tunnels
@@ -360,6 +372,21 @@ final class Phone: Identifiable {
                 await asyncio.wait_for(location.set(lat, lon), 4)
 
     async def main(udid, lat, lon):
+        # The app stops a session with SIGTERM. Turn it into a cancel so the location channel closes and
+        # Apple's tunnel is released properly before the next session opens.
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+        try:
+            await run(udid, lat, lon)
+        except asyncio.CancelledError:
+            log("stopping: the app ended this session")
+        finally:
+            if native is not None:
+                try:
+                    await asyncio.wait_for(native.aclose(), 3)
+                except Exception:
+                    pass
+
+    async def run(udid, lat, lon):
         global via
         held, drop = False, None
         def ready():
