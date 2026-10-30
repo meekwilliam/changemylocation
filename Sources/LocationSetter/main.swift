@@ -386,6 +386,7 @@ final class Phone: Identifiable {
 
     via = "connecting"
     app = os.getppid()
+    PATIENCE = 60  # seconds to wait for a late answer before treating the connection as dead
 
     def log(text):
         # ~/Library/Logs/LocationSetter.log, shared with the app; lines are tagged with the phone's UDID tail.
@@ -410,8 +411,18 @@ final class Phone: Identifiable {
                 if os.getppid() != app:
                     log("exiting: the app that started this session is gone")
                     sys.exit(0)
-                # A healthy phone answers within a second; reopening takes ~2s, so give up on a silent one quickly.
-                await asyncio.wait_for(location.set(lat, lon), 4)
+                # Closing this channel makes the phone stop the simulation at once (locationd logs "stop location
+                # simulation" and serves a real GPS fix within milliseconds), so never close it just because a
+                # locked phone is slow: its Wi-Fi naps for seconds at a time and answers late. Wait for the late
+                # reply on the same connection; only a broken connection, or a minute of silence, reconnects.
+                started = time.monotonic()
+                reply = asyncio.ensure_future(location.set(lat, lon))
+                done, _ = await asyncio.wait({reply}, timeout=4)
+                if not done:
+                    await asyncio.wait_for(reply, PATIENCE)
+                    log(f"slow answer after {time.monotonic() - started:.1f}s; kept the same connection")
+                else:
+                    reply.result()
 
     async def main(udid, lat, lon):
         # The app stops a session with SIGTERM. Turn it into a cancel so the location channel closes and
