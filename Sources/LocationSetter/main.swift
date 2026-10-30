@@ -252,7 +252,8 @@ final class Phone: Identifiable {
     }
 
     func checkWifi() async {
-        guard let tool, connected else { return }
+        // A lockdown session opened while holding can end the phone's tunnel for the session, so never probe then.
+        guard let tool, connected, session == nil else { return }
         let r = await Shell.run("PYTHONWARNINGS=ignore \(Shell.quote(tool)) lockdown wifi-connections --udid \(Shell.quote(id))")
         if r.output.contains("\"EnableWifiConnections\": true") { wifiEnabled = true }
         else if r.output.contains("\"EnableWifiConnections\": false") { wifiEnabled = false }
@@ -395,10 +396,25 @@ final class Phone: Identifiable {
 
     async def main(udid, lat, lon):
         # The app stops a session with SIGTERM. Turn it into a cancel so the location channel closes and
-        # Apple's tunnel is released properly before the next session opens.
-        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+        # the tunnel is released properly before the next session opens.
+        task = asyncio.current_task()
+        stopping = False
+        def stop():
+            nonlocal stopping
+            stopping = True
+            task.cancel()
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop)
         try:
-            await run(udid, lat, lon)
+            while True:
+                try:
+                    await run(udid, lat, lon)
+                except asyncio.CancelledError:
+                    if stopping:
+                        raise
+                    # Our own tunnel's tasks get cancelled when the phone ends it (another lockdown session
+                    # opening can do that): that's a lost tunnel, not a stop, so reconnect.
+                    log("tunnel was closed under us; reconnecting")
+                    await asyncio.sleep(1)
         except asyncio.CancelledError:
             log("stopping: the app ended this session")
         finally:
