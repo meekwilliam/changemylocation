@@ -256,10 +256,14 @@ final class Phone: Identifiable {
         note("Reset pressed")
         endSession()
         manager?.updateKeepAwake()
-        if handedOff {
-            let r = await Shell.run("xcrun devicectl device simulate location clear --device \(Shell.quote(id)) --timeout 60")
-            if r.ok { handedOff = false }
-            return show(r.ok ? "Restored real GPS location" : "Couldn't reach \(name) to reset it: \(lastLine(r.output))", error: !r.ok)
+        // A handed-off location lives on the phone and outlasts this app, so after a relaunch the app can't know it's
+        // there: always clear it with devicectl (a no-op when there is none), then fall back for live sessions.
+        let cleared = await Shell.run("xcrun devicectl device simulate location clear --device \(Shell.quote(id)) --timeout 60")
+        if cleared.ok {
+            handedOff = false
+            return show("Restored real GPS location", error: false)
+        } else if handedOff {
+            return show("Couldn't reach \(name) to reset it: \(lastLine(cleared.output))", error: true)
         }
         // Closing the session already restores real GPS; `clear` is a backstop that needs a tunneld tunnel.
         guard !tunnelAddresses.isEmpty else { return show("Restored real GPS location", error: false) }
