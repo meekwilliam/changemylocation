@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "LocationSetter",
+    name: "imsomeeked",
     platforms: [.macOS("26.0")],
     targets: [
-        .executableTarget(name: "LocationSetter", swiftSettings: [.swiftLanguageMode(.v5)])
+        .executableTarget(name: "imsomeeked", swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

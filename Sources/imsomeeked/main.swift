@@ -150,12 +150,12 @@ final class Phone: Identifiable {
         }
     }
 
-    /// Records each Set and Reset in ~/Library/Logs/LocationSetter.log.
+    /// Records each Set and Reset in ~/Library/Logs/imsomeeked.log.
     func note(_ text: String) {
         let format = DateFormatter()
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let line = "\(format.string(from: Date())) [\(id.suffix(4))] app: \(text)\n"
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/LocationSetter.log")
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/imsomeeked.log")
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
             h.write(Data(line.utf8))
@@ -591,7 +591,7 @@ struct ContentView: View {
 // MARK: - App
 
 @main
-struct LocationSetterApp: App {
+struct ImsomeekedApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
     }
