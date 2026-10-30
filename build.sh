@@ -12,6 +12,8 @@ codesign --force --sign - "$APP"
 echo "Built $APP"
 if [ "$1" = "--zip" ]; then
   rm -f imsomeeked.zip
-  ditto -c -k --keepParent "$APP" imsomeeked.zip
+  # Leave out extended attributes and resource forks: other unzip tools turn them into ._ files inside the
+  # bundle, which breaks its signature.
+  ditto -c -k --norsrc --noextattr --keepParent "$APP" imsomeeked.zip
   echo "Packed imsomeeked.zip"
 fi
