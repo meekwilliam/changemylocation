@@ -29,6 +29,7 @@ jobs:
           --collect-all pymobiledevice3
           --collect-all developer_disk_image
           --collect-all pmd_pytcp
+          --collect-all pytun_pmd3
           imsomeeked.py
 
       - name: Self-test the build
