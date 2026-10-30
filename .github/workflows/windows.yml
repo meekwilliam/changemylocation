@@ -24,7 +24,7 @@ jobs:
 
       - name: Build imsomeeked.exe
         run: >
-          pyinstaller --noconfirm --onefile --windowed --name imsomeeked
+          pyinstaller --noconfirm --onefile --console --hide-console hide-early --name imsomeeked
           --add-data "web;web"
           --collect-all pymobiledevice3
           --collect-all developer_disk_image
@@ -34,8 +34,13 @@ jobs:
       - name: Self-test the build
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist\imsomeeked.exe -ArgumentList "--selftest" -Wait -PassThru
-          Get-Content "$env:APPDATA\imsomeeked\selftest.txt"
+          # A console build that hides its window at startup, so import errors print here instead of a dialog.
+          $p = Start-Process -FilePath dist\imsomeeked.exe -ArgumentList "--selftest" -NoNewWindow -PassThru `
+            -RedirectStandardOutput selftest.out -RedirectStandardError selftest.err
+          $null = $p.Handle  # needed for ExitCode to be filled in
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "Self-test timed out"; Get-Content selftest.out, selftest.err; exit 1 }
+          Get-Content selftest.out, selftest.err
+          Get-Content "$env:APPDATA\imsomeeked\selftest.txt" -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
