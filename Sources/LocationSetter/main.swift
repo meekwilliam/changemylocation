@@ -223,6 +223,15 @@ final class Phone: Identifiable {
         note(String(format: "Set Location pressed (%.5f, %.5f)%@", c.latitude, c.longitude,
                     session != nil ? "; replacing the running session" : ""))
         endSession()
+        // Preferred: hand the spot to the phone itself. It then holds with nothing connected, through Wi-Fi
+        // naps, a closed laptop or leaving the house, until Reset or a restart.
+        if let error = await handOff(c) {
+            note("devicectl couldn't set it (\(error)); holding with a live session instead")
+        } else {
+            show(String(format: "Location set to %.5f, %.5f — the iPhone holds it on its own until Reset", c.latitude, c.longitude), error: false)
+            manager?.updateKeepAwake()
+            return
+        }
         target = c
         if let error = await hold(c) {
             // A newer Set or Reset already took over.
@@ -245,10 +254,30 @@ final class Phone: Identifiable {
         note("Reset pressed")
         endSession()
         manager?.updateKeepAwake()
+        if handedOff {
+            let r = await Shell.run("xcrun devicectl device simulate location clear --device \(Shell.quote(id)) --timeout 60")
+            if r.ok { handedOff = false }
+            return show(r.ok ? "Restored real GPS location" : "Couldn't reach \(name) to reset it: \(lastLine(r.output))", error: !r.ok)
+        }
         // Closing the session already restores real GPS; `clear` is a backstop that needs a tunneld tunnel.
         guard !tunnelAddresses.isEmpty else { return show("Restored real GPS location", error: false) }
         let r = await Shell.run("\(Shell.quote(tool)) developer dvt simulate-location clear --tunnel \(Shell.quote(id))")
         show(r.ok ? "Restored real GPS location" : lastLine(r.output), error: !r.ok)
+    }
+
+    /// Whether the current location lives on the phone (set with devicectl) rather than in a live session.
+    var handedOff = false
+
+    /// Sets the location through Xcode's devicectl, which hands it to the phone's own dtlocationd: the
+    /// simulation then runs on the phone with nothing connected, unlike a DVT session, which ends the moment
+    /// its connection closes. Returns an error message on failure (e.g. no Xcode).
+    private func handOff(_ c: CLLocationCoordinate2D) async -> String? {
+        let r = await Shell.run("xcrun devicectl device simulate location coordinate --device \(Shell.quote(id)) --latitude=\(c.latitude) --longitude=\(c.longitude) --timeout 60")
+        guard r.ok else { return lastLine(r.output) }
+        handedOff = true
+        holding = true
+        note(String(format: "location handed to the phone with devicectl (%.5f, %.5f); it holds with nothing connected", c.latitude, c.longitude))
+        return nil
     }
 
     func checkWifi() async {
@@ -809,7 +838,7 @@ struct ContentView: View {
                 if manager.toolPath == nil {
                     pill("Install in Terminal: python3 -m pip install -U pymobiledevice3", icon: "terminal", color: .secondary)
                 }
-                if let phone, phone.wifiEnabled != true, phone.holding || phone.reconnecting {
+                if let phone, phone.wifiEnabled != true, !phone.handedOff, phone.holding || phone.reconnecting {
                     pill("Keep the iPhone plugged in and this app open.", icon: "cable.connector", color: .secondary)
                 }
             }
