@@ -348,19 +348,26 @@ final class Phone: Identifiable {
         await asyncio.wait_for(rsd.connect(), 20)
         return rsd
 
-    async def native_rsd(udid):
-        # macOS's own tunnel (the one Xcode's wireless debugging uses), held open by an assertion.
-        from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
-        global native  # keep the tunnel (and its assertion) alive while it's in use
-        if native is not None:
+    async def open_tunnel(udid, kind):
+        # "Own": an in-process tunnel over the Wi-Fi sync connection to the phone's CoreDeviceProxy, so
+        # nothing on the Mac can tear it down while the phone's Wi-Fi naps. "Apple": macOS's tunnel (the one
+        # Xcode's wireless debugging uses), which macOS rebuilds when a locked phone goes quiet.
+        global tunnel
+        if tunnel is not None:
             try:
-                await native.aclose()
+                await tunnel.aclose()
             except Exception:
                 pass
-        native = NativeRemotedTunnel(serial=udid)
-        return await asyncio.wait_for(native.aopen(), 20)
+            tunnel = None
+        if kind == "Own":
+            from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
+            tunnel = UserspaceRsdTunnel(serial=udid)
+        else:
+            from pymobiledevice3.remote.native_tunnel import NativeRemotedTunnel
+            tunnel = NativeRemotedTunnel(serial=udid)  # keeps its assertion alive while in use
+        return await asyncio.wait_for(tunnel.aopen(), 20)
 
-    native = None
+    tunnel = None
 
     async def connect(udid):
         try:
@@ -368,14 +375,18 @@ final class Phone: Identifiable {
         except Exception:
             tunnels = []
         # A locked iPhone drops tunneld's Wi-Fi tunnel every 20-40 seconds. USB stays up, so use it when
-        # plugged in; otherwise try Apple's tunnel, and tunneld's Wi-Fi one only as a last resort.
+        # plugged in; otherwise our own tunnel, then Apple's, and tunneld's Wi-Fi one only as a last resort.
         usb = [t for t in tunnels if over_usb(t)]
         if usb:
             return await tunneld_rsd(usb[0]), "USB"
+        try:
+            return await open_tunnel(udid, "Own"), "Own"
+        except Exception as e:
+            log(f"own tunnel failed ({type(e).__name__}: {e}); trying Apple's")
         # A locked phone can go unseen by macOS for a while, so give Apple's tunnel a few tries.
         for attempt in range(3):
             try:
-                return await native_rsd(udid), "Apple"
+                return await open_tunnel(udid, "Apple"), "Apple"
             except Exception as e:
                 error = e
                 await asyncio.sleep(2)
@@ -433,9 +444,9 @@ final class Phone: Identifiable {
         except asyncio.CancelledError:
             log("stopping: the app ended this session")
         finally:
-            if native is not None:
+            if tunnel is not None:
                 try:
-                    await asyncio.wait_for(native.aclose(), 3)
+                    await asyncio.wait_for(tunnel.aclose(), 3)
                 except Exception:
                     pass
 
@@ -458,7 +469,7 @@ final class Phone: Identifiable {
             except (ConnectionTerminatedError, asyncio.TimeoutError, OSError) as e:
                 # Over Wi-Fi the channel still closes or stops answering now and then. Reopen it right here,
                 # which is much quicker than exiting and having the app start a new session.
-                if via != "Apple" or not held:
+                if via not in ("Own", "Apple") or not held:
                     raise
                 if drop is None:
                     log(f"{type(e).__name__}, reopening")
@@ -499,8 +510,8 @@ final class Phone: Identifiable {
             return "Cancelled"
         }
         session = p
-        // Apple's tunnel isn't one of tunneld's, so tunneld's coming and going says nothing about it.
-        sessionAddresses = r.output.contains("via Apple") ? [] : tunnelAddresses
+        // Our own and Apple's tunnels aren't tunneld's, so tunneld's coming and going says nothing about them.
+        sessionAddresses = r.output.contains("via Apple") || r.output.contains("via Own") ? [] : tunnelAddresses
         holding = true
         p.terminationHandler = { [weak self] _ in
             Task { @MainActor in self?.sessionDropped(p) }
