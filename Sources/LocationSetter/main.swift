@@ -29,6 +29,45 @@ func lastLine(_ output: String) -> String {
     output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
 }
 
+// MARK: - Alerts
+
+/// Texts the number or Apple ID saved under "alertRecipient" through the Messages app.
+enum Alerts {
+    static let recipientKey = "alertRecipient"
+
+    static var recipient: String {
+        UserDefaults.standard.string(forKey: recipientKey)?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+
+    /// Sends `text` if a recipient is set. Returns nil on success, otherwise why it failed.
+    @discardableResult
+    static func send(_ text: String) async -> String? {
+        let to = recipient
+        guard !to.isEmpty else { return "No recipient set" }
+        return await withCheckedContinuation { cont in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            // Passed as arguments, never spliced into the script, so any text or number is safe.
+            p.arguments = ["-e", "on run argv",
+                           "-e", "tell application \"Messages\" to send (item 2 of argv) to participant (item 1 of argv) of (1st account whose service type = iMessage)",
+                           "-e", "end run", to, "imsomeeked: \(text)"]
+            let pipe = Pipe()
+            p.standardError = pipe
+            p.standardOutput = Pipe()
+            p.terminationHandler = { proc in
+                let err = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                cont.resume(returning: proc.terminationStatus == 0 ? nil : lastLine(err))
+            }
+            do { try p.run() } catch { cont.resume(returning: error.localizedDescription) }
+        }
+    }
+
+    /// Fire-and-forget version for alerts.
+    static func notify(_ text: String) {
+        Task { await send(text) }
+    }
+}
+
 // MARK: - Manager
 
 /// Owns the tunnel and the list of connected phones.
@@ -270,6 +309,9 @@ final class Phone: Identifiable {
     func endSession() {
         target = nil
         holding = false
+        // Ending on purpose (Set, Reset, quit) isn't a loss worth texting about.
+        lostSince = nil
+        lostAlerted = false
         if let s = session {
             session = nil
             if s.isRunning {
@@ -395,6 +437,7 @@ final class Phone: Identifiable {
                 print("Location held. Press Ctrl+C to stop.", flush=True)
             elif drop is not None:
                 log(f"held again after {time.monotonic() - drop:.1f}s")
+                print("EVENT held", flush=True)
             held, drop = True, None
         while True:
             rsd, via = await connect(udid)
@@ -408,6 +451,7 @@ final class Phone: Identifiable {
                     raise
                 if drop is None:
                     log(f"{type(e).__name__}, reopening")
+                    print("EVENT drop", flush=True)  # the app turns these into iMessage alerts
                     drop = time.monotonic()
                 await asyncio.sleep(0.5)
 
@@ -461,7 +505,47 @@ final class Phone: Identifiable {
         session = nil
         holding = false
         guard target != nil, !reconnecting else { return }
+        locationLost(burst: false)
         Task { await reconnect() }
+    }
+
+    // MARK: Alerts
+
+    /// When the phone last stopped holding its location, and whether that loss was already texted.
+    private var lostSince: Date?
+    private var lostAlerted = false
+    private var lastBurstAlert = Date.distantPast
+
+    /// The hold script reports each quick drop (`drop`) and its recovery (`held`).
+    private func sessionEvent(_ event: String) {
+        switch event {
+        case "drop": locationLost(burst: true)
+        case "held": locationBack()
+        default: break
+        }
+    }
+
+    /// Texts when the phone starts dropping (at most every 10 minutes) and when it stays off its location for 30s.
+    private func locationLost(burst: Bool) {
+        if lostSince == nil { lostSince = Date() }
+        if burst, Date().timeIntervalSince(lastBurstAlert) > 600 {
+            lastBurstAlert = Date()
+            Alerts.notify("\(name) started dropping its location for a few seconds at a time. A charger usually stops this.")
+        }
+        let since = lostSince
+        Task {
+            try? await Task.sleep(for: .seconds(30))
+            guard lostSince == since, !lostAlerted, target != nil else { return }
+            lostAlerted = true
+            note("alert: location lost for 30s")
+            Alerts.notify("\(name) has been on its real location for 30 seconds. Still reconnecting.")
+        }
+    }
+
+    private func locationBack() {
+        if lostAlerted { Alerts.notify("\(name) is holding its location again.") }
+        lostSince = nil
+        lostAlerted = false
     }
 
     /// Keeps trying to reopen the session (over Wi-Fi once unplugged) until it holds or the user resets.
@@ -473,6 +557,7 @@ final class Phone: Identifiable {
             await manager?.refresh()
             // Not gated on tunneld listing the phone: Apple's tunnel can reach it while tunneld's Wi-Fi one is down.
             if await hold(c) == nil {
+                locationBack()
                 show(String(format: "Reconnected — holding %.5f, %.5f", c.latitude, c.longitude), error: false)
                 return
             }
@@ -481,6 +566,7 @@ final class Phone: Identifiable {
     }
 
     /// Starts the `set` process and returns once it reports the location is held, or it exits with an error.
+    /// After that, the script's `EVENT drop` / `EVENT held` lines are passed to `sessionEvent`.
     private func startSession(_ p: Process) async -> (ok: Bool, output: String) {
         await withCheckedContinuation { cont in
             let pipe = Pipe()
@@ -489,6 +575,7 @@ final class Phone: Identifiable {
             let lock = NSLock()
             var buffer = ""
             var done = false
+            var pending = ""
             func finish(_ ok: Bool) {
                 lock.lock()
                 defer { lock.unlock() }
@@ -496,14 +583,25 @@ final class Phone: Identifiable {
                 done = true
                 cont.resume(returning: (ok, buffer))
             }
-            pipe.fileHandleForReading.readabilityHandler = { h in
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
                 let data = h.availableData
                 if data.isEmpty { h.readabilityHandler = nil; return }
+                let text = String(decoding: data, as: UTF8.self)
                 lock.lock()
-                buffer += String(decoding: data, as: UTF8.self)
-                let ready = buffer.contains("Press Ctrl+C")
+                let wasDone = done
+                if !wasDone { buffer += text }
+                pending += text
+                var lines = pending.components(separatedBy: "\n")
+                pending = lines.removeLast()
+                let ready = !wasDone && buffer.contains("Press Ctrl+C")
                 lock.unlock()
                 if ready { finish(true) }
+                let events = lines.filter { $0.hasPrefix("EVENT ") }.map { String($0.dropFirst(6)) }
+                guard wasDone || ready, !events.isEmpty else { return }
+                Task { @MainActor in
+                    guard let self, self.session === p else { return }
+                    events.forEach(self.sessionEvent)
+                }
             }
             p.terminationHandler = { _ in
                 // Let any final output land before reporting the failure.
@@ -555,6 +653,9 @@ struct ContentView: View {
     /// Last pointer position over the map, used as the right-click spot.
     @State private var pointer: CGPoint?
     @FocusState private var searchFocused: Bool
+    @AppStorage(Alerts.recipientKey) private var alertRecipient = ""
+    @State private var sendingTest = false
+    @State private var alertResult: String?
 
     private var phone: Phone? { manager.selectedPhone }
     private var current: Place? { phone?.selected ?? draft }
@@ -759,6 +860,12 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 10) {
                 statusPill
                 locationCard
+                alertsPill
+
+                if let alertResult {
+                    pill(alertResult, icon: alertResult == "Test sent" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                         color: alertResult == "Test sent" ? .green : .orange)
+                }
 
                 if let phone, !phone.message.isEmpty {
                     pill(phone.message,
@@ -780,6 +887,34 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(duration: 0.35), value: phone?.message)
         .animation(.spring(duration: 0.35), value: phone?.holding)
+    }
+
+    /// Where drop alerts are texted. Alerts go to another phone: one lighting up the phone being held
+    /// would wake it and hide the drop.
+    private var alertsPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bell.badge")
+                .foregroundStyle(.secondary)
+            TextField("iMessage alerts to (phone or Apple ID)", text: $alertRecipient)
+                .textFieldStyle(.plain)
+                .onChange(of: alertRecipient) { alertResult = nil }
+            Button(sendingTest ? "Sending…" : "Send Test") {
+                Task {
+                    sendingTest = true
+                    let error = await Alerts.send("Test alert. You'll get texts like this when a phone drops its location.")
+                    sendingTest = false
+                    alertResult = error.map { "Couldn't send: \($0)" } ?? "Test sent"
+                }
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            .disabled(alertRecipient.trimmingCharacters(in: .whitespaces).isEmpty || sendingTest)
+        }
+        .font(.system(size: 13, weight: .medium, design: .rounded))
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .frame(minHeight: 42)
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var statusPill: some View {
