@@ -1,10 +1,16 @@
 # imsomeeked
 
-A free macOS app for setting a simulated location on your own iPhone, for testing location-based apps.
+A free app for setting a simulated location on your own iPhone, for testing location-based apps.
+
+<p>
+  <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip"><img alt="Download for macOS" src="https://img.shields.io/badge/Download_for-macOS-1f6feb?style=for-the-badge"></a>
+  &nbsp;
+  <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe"><img alt="Download for Windows (beta)" src="https://img.shields.io/badge/Download_for-Windows_(beta)-1f6feb?style=for-the-badge"></a>
+</p>
 
 Pick a spot on the map and press **Set Location**. The iPhone then holds that location **on its own**. You can unplug it, take it off your Wi-Fi, lock it, or close your Mac, and it keeps reporting the simulated spot to every app until you press **Reset** or restart the phone.
 
-> **Windows?** There's a beta Windows version in [`windows/`](windows). It works the same way, using pymobiledevice3 instead of Xcode.
+> **Windows?** The Windows version (beta) works the same way, using pymobiledevice3 instead of Xcode. See [`windows/`](windows) for its setup.
 
 ## Requirements
 
