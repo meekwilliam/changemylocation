@@ -1,0 +1,44 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller==6.22.3
+
+      - name: Build imsomeeked.exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --name imsomeeked
+          --add-data "web;web"
+          --collect-all pymobiledevice3
+          --collect-all developer_disk_image
+          --collect-all pmd_pytcp
+          imsomeeked.py
+
+      - name: Self-test the build
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\imsomeeked.exe -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$env:APPDATA\imsomeeked\selftest.txt"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imsomeeked-windows
+          path: windows/dist/imsomeeked.exe

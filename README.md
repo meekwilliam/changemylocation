@@ -4,6 +4,8 @@ A free macOS app for setting a simulated location on your own iPhone, for testin
 
 Pick a spot on the map and press **Set Location**. The iPhone then holds that location **on its own**. You can unplug it, take it off your Wi-Fi, lock it, or close your Mac, and it keeps reporting the simulated spot to every app until you press **Reset** or restart the phone.
 
+> **Windows?** There's a beta Windows version in [`windows/`](windows). It works the same way, using pymobiledevice3 instead of Xcode.
+
 ## Requirements
 
 - A Mac with **macOS 26** or later.
