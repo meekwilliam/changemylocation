@@ -35,3 +35,7 @@ python imsomeeked.py
 ```
 
 Search and the map use [OpenStreetMap](https://www.openstreetmap.org/copyright) data and its Nominatim search service. The map is drawn with [Leaflet](https://leafletjs.com) (BSD-2-Clause, bundled in `web/vendor/leaflet`).
+
+## License
+
+The Windows code in this folder is MIT licensed, like the rest of imsomeeked. The built `imsomeeked.exe` bundles [pymobiledevice3](https://github.com/doronz88/pymobiledevice3) and other GPL-3.0 libraries, so the `.exe` as a whole is distributed under the [GPL-3.0](COPYING.GPL-3.0.txt). Each release includes `THIRD_PARTY_LICENSES.txt`, which lists every bundled package with its license and source.

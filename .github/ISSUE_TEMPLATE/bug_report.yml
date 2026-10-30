@@ -1,0 +1,39 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Computer
+      options: [macOS, Windows]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: imsomeeked version, macOS/Windows version, and the iPhone's iOS version.
+      placeholder: imsomeeked 1.1, macOS 26.1, iOS 27.0.1
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How is the iPhone connected?
+      options: [USB cable, Wi-Fi]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. Include any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Paste the end of the log, with phone names and coordinates removed if you like.
+        macOS: `~/Library/Logs/imsomeeked.log` · Windows: `%APPDATA%\imsomeeked\imsomeeked.log`
+      render: text

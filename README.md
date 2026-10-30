@@ -1,6 +1,6 @@
-# imsomeeked
+# imsomeeked: iPhone location simulator for Mac and Windows
 
-A free app for setting a simulated location on your own iPhone, for testing location-based apps.
+**Set a simulated GPS location on your own iPhone, for free.** You don't need a jailbreak or an app on the phone, and once the location is set, the iPhone **keeps it on its own**, even after you unplug it, lock it, or close your computer. Works with **iOS 17, 18, 26 and 27**.
 
 <p>
   <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip"><img alt="Download for macOS" src="https://img.shields.io/badge/Download_for-macOS-1f6feb?style=for-the-badge"></a>
@@ -8,56 +8,129 @@ A free app for setting a simulated location on your own iPhone, for testing loca
   <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe"><img alt="Download for Windows (beta)" src="https://img.shields.io/badge/Download_for-Windows_(beta)-1f6feb?style=for-the-badge"></a>
 </p>
 
-Pick a spot on the map and press **Set Location**. The iPhone then holds that location **on its own**. You can unplug it, take it off your Wi-Fi, lock it, or close your Mac, and it keeps reporting the simulated spot to every app until you press **Reset** or restart the phone.
+[![Latest release](https://img.shields.io/github/v/release/meekwilliam/imsomeeked)](https://github.com/meekwilliam/imsomeeked/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/meekwilliam/imsomeeked/total)](https://github.com/meekwilliam/imsomeeked/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
+![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
 
-> **Windows?** The Windows version (beta) works the same way, using pymobiledevice3 instead of Xcode. See [`windows/`](windows) for its setup.
+> [!TIP]
+> **Does your old location spoofer no longer work since iOS 17?** imsomeeked uses the location service that Apple's own developer tools use on iOS 17 and later.
+
+<!-- Screenshot: add docs/screenshot.png here -->
+
+<details>
+<summary><b>Table of contents</b></summary>
+
+- [Features](#features)
+- [How it compares](#how-it-compares)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Set up your iPhone](#set-up-your-iphone-once)
+- [Use](#use)
+- [FAQ](#faq)
+- [How it works](#how-it-works)
+- [Build from source](#build-from-source)
+- [Contributing](#contributing)
+- [Responsible use](#responsible-use)
+- [License](#license)
+</details>
+
+## Features
+
+- **Change your iPhone's GPS location** to anywhere: search an address or place, click the map, or paste coordinates (`lat, lon`).
+- **Holds the location without staying connected.** The iPhone runs the simulation itself, so you can unplug it, lock it, take it off your Wi-Fi, or close the laptop.
+- **No jailbreak, and nothing to install on the iPhone.**
+- **iOS 17 and later**, including iOS 18, iOS 26 and iOS 27.
+- **Works over a USB cable or Wi-Fi.**
+- **Several iPhones at once**, each in its own tab.
+- **One-click reset** back to your real location. Restarting the iPhone also resets it.
+- **Remembers each phone's last spot**, so it's quick to set again after a restart.
+- **macOS and Windows (beta).** Free and open source.
+
+## How it compares
+
+| | imsomeeked | Older spoofing tools | Live-connection tools |
+|---|---|---|---|
+| iOS 17 and later | ✅ | ❌ often broken | ✅ |
+| Keeps the location after unplugging or sleeping | ✅ | varies | ❌ drops back to real GPS |
+| Jailbreak needed | No | Sometimes | No |
+| App on the iPhone | No | Sometimes | Sometimes |
+| Price | Free, open source | Often paid | Varies |
 
 ## Requirements
 
-- A Mac with **macOS 26** or later.
-- **Xcode 26** or later, installed and opened once. imsomeeked uses Xcode's `devicectl` tool.
-- An iPhone with **Developer Mode** on. imsomeeked is tested on iOS 27, and `devicectl` needs iOS 17 or later.
+| | macOS | Windows (beta) |
+|---|---|---|
+| Computer | macOS 26 or later | Windows 10 or 11 |
+| Extra software | **Xcode 26** or later, opened once | **Apple Devices** from the Microsoft Store, or iTunes |
+| iPhone | iOS 17 or later, **Developer Mode** on | iOS 17 or later, **Developer Mode** on |
+
+imsomeeked is tested on iOS 27.
 
 ## Install
 
-1. Download `imsomeeked.zip` from [Releases](../../releases), unzip it, and move **imsomeeked** to Applications.
-2. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run this in Terminal: `xattr -dr com.apple.quarantine /Applications/imsomeeked.app`.
+**macOS:** [Download `imsomeeked.zip`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip), unzip it, and move **imsomeeked** to Applications. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run `xattr -dr com.apple.quarantine /Applications/imsomeeked.app`.
+
+**Windows (beta):** [Download `imsomeeked.exe`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
 
 ## Set up your iPhone (once)
 
-1. Plug the iPhone into your Mac, unlock it, and tap **Trust**.
-2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart. If you don't see the option, open Xcode with the phone plugged in, and it will appear.
-3. Optional: to set locations without a cable, open Xcode's **Window › Devices and Simulators**, select the phone, and check **Connect via network**.
+1. Plug the iPhone into your computer, unlock it, and tap **Trust**.
+2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart. On a Mac, if you don't see the option, open Xcode with the phone plugged in and it will appear.
+3. Optional, to set locations over Wi-Fi without a cable:
+   - **Mac:** in Xcode, open **Window › Devices and Simulators**, select the phone, and check **Connect via network**.
+   - **Windows:** in Apple Devices, turn on **Show this iPhone when on Wi-Fi**.
 
 ## Use
 
-- Pick a place by searching, clicking the map, or right-clicking it, then press **Set Location**. When it says the iPhone holds it on its own, you can disconnect.
-- Press **Reset** (↺) to go back to the real location. The phone has to be reachable for this, either plugged in or on the same Wi-Fi.
-- **Restarting the iPhone** also clears the simulated location, with no Mac needed. imsomeeked remembers each phone's last spot, so setting it again is one click.
-- Several iPhones work at once. Each one gets its own tab.
+1. Search for a place, click the map, or paste coordinates. On a Mac you can also right-click the map.
+2. Press **Set Location**. When it says the iPhone holds the location on its own, you can disconnect.
+3. To go back to your real location, press **Reset** (↺). The phone has to be reachable for this, by cable or on the same Wi-Fi. Restarting the iPhone also resets it.
+
+## FAQ
+
+**Do I need to jailbreak my iPhone?**
+No. imsomeeked uses Apple's developer location simulation, the same feature Xcode uses.
+
+**Does the iPhone have to stay connected to the computer?**
+No. Once the location is set, the iPhone holds it by itself. In testing, it held for over 9 hours with the Mac asleep and the iPhone locked on battery, with no interruptions in the phone's own log.
+
+**Which iOS versions work?**
+iOS 17 and later. It's tested on iOS 27.
+
+**How do I get my real location back?**
+Press **Reset** with the phone reachable, or restart the iPhone.
+
+**Why does an app still show the old location?**
+Some apps keep the last location they received, so close the app fully and reopen it. A few apps deliberately ignore simulated locations.
+
+**Do I need Xcode?**
+On macOS, yes for now: imsomeeked uses Xcode's `devicectl` tool. The Windows version doesn't need Xcode.
+
+**Is it safe?**
+It only changes the location your iPhone reports, and restarting the iPhone undoes it. The code is open source, so you can read exactly what it does.
 
 ## How it works
 
-imsomeeked calls `xcrun devicectl device simulate location coordinate`. That hands the location to the iPhone's own location-simulation service, the same one Xcode uses. The phone then runs the simulation itself, so nothing has to stay connected, and there's no connection to drop when the phone sleeps or leaves your Wi-Fi.
+On a Mac, imsomeeked calls `xcrun devicectl device simulate location coordinate`. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
 
-An earlier version kept a live developer session open from the Mac. A locked iPhone's Wi-Fi naps, and macOS tears down its tunnel to the phone, and either one ended that session and sent the phone back to real GPS. The phone-held simulation has no such dependency. In testing, it held for over 9 hours with the Mac asleep and the phone locked on battery, with zero interruptions in the phone's own log.
-
-Each Set and Reset is logged to `~/Library/Logs/imsomeeked.log`.
+Many tools instead keep a live developer connection open the whole time. A locked iPhone's Wi-Fi naps, and the computer tears down its connection to a quiet phone. Either one ends a live session and sends the iPhone back to real GPS, which shows up as the location "jumping back". imsomeeked has no connection to lose.
 
 ## Build from source
+
+**macOS**, which needs the Swift toolchain from Xcode 26:
 
 ```sh
 ./build.sh          # builds imsomeeked.app
 ./build.sh --zip    # also makes imsomeeked.zip for a release
 ```
 
-Requires the Swift toolchain that comes with Xcode 26.
+**Windows:** see [`windows/`](windows#readme). The `.exe` is built by GitHub Actions ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)).
 
-## Limits
+## Contributing
 
-- Setting or resetting a location needs the iPhone reachable, by cable or on the same Wi-Fi with the phone awake.
-- Some apps keep the last location they received, so close and reopen them. A few apps deliberately ignore simulated locations.
-- Only the GPS position is simulated, not motion sensor data.
+Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](.github/CONTRIBUTING.md), open an [issue](https://github.com/meekwilliam/imsomeeked/issues), or ask in [Discussions](https://github.com/meekwilliam/imsomeeked/discussions).
 
 ## Responsible use
 
@@ -65,6 +138,11 @@ imsomeeked is meant for developing and testing apps on devices you own. Respect 
 
 imsomeeked is an independent project and isn't affiliated with or endorsed by Apple. Apple, iPhone and Xcode are trademarks of Apple Inc.
 
+## Acknowledgements
+
+- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3), for talking to iPhones on Windows.
+- [Leaflet](https://leafletjs.com) and [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, for the Windows map and search.
+
 ## License
 
-[MIT](LICENSE)
+imsomeeked's source code is [MIT licensed](LICENSE). The Windows `.exe` bundles pymobiledevice3 and other GPL-3.0 libraries, so the Windows build as a whole is distributed under the [GPL-3.0](windows/COPYING.GPL-3.0.txt). Its full third-party license list ships with each release.

@@ -47,7 +47,18 @@ jobs:
           Get-Content "$env:APPDATA\imsomeeked\selftest.txt" -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { exit 1 }
 
+      # The .exe bundles GPL-3.0 libraries (pymobiledevice3 and friends), so ship the GPL text and every bundled
+      # package's license next to it.
+      - name: Collect third-party licenses
+        run: |
+          pip install pip-licenses==5.5.5
+          pip-licenses --with-urls --with-license-file --no-license-path --format=plain-vertical --output-file dist/THIRD_PARTY_LICENSES.txt
+          copy COPYING.GPL-3.0.txt dist\
+
       - uses: actions/upload-artifact@v4
         with:
           name: imsomeeked-windows
-          path: windows/dist/imsomeeked.exe
+          path: |
+            windows/dist/imsomeeked.exe
+            windows/dist/THIRD_PARTY_LICENSES.txt
+            windows/dist/COPYING.GPL-3.0.txt

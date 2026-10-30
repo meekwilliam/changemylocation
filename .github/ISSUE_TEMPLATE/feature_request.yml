@@ -1,0 +1,11 @@
+name: Feature request
+description: An idea to make imsomeeked better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What problem it solves, and how you imagine it working.
+    validations:
+      required: true
