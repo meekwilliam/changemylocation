@@ -223,14 +223,16 @@ final class Phone: Identifiable {
         note(String(format: "Set Location pressed (%.5f, %.5f)%@", c.latitude, c.longitude,
                     session != nil ? "; replacing the running session" : ""))
         endSession()
-        // Preferred: hand the spot to the phone itself. It then holds with nothing connected, through Wi-Fi
+        // "Hand off to iPhone" (Settings): the phone holds the spot itself, with nothing connected, through Wi-Fi
         // naps, a closed laptop or leaving the house, until Reset or a restart.
-        if let error = await handOff(c) {
-            note("devicectl couldn't set it (\(error)); holding with a live session instead")
-        } else {
-            show(String(format: "Location set to %.5f, %.5f — the iPhone holds it on its own until Reset", c.latitude, c.longitude), error: false)
-            manager?.updateKeepAwake()
-            return
+        if LocationMethod.current == .handOff {
+            if let error = await handOff(c) {
+                note("devicectl couldn't set it (\(error)); holding with a live session instead")
+            } else {
+                show(String(format: "Location set to %.5f, %.5f — the iPhone holds it on its own until Reset", c.latitude, c.longitude), error: false)
+                manager?.updateKeepAwake()
+                return
+            }
         }
         target = c
         if let error = await hold(c) {
@@ -1038,5 +1040,68 @@ struct LocationSetterApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 780)
+
+        Settings {
+            SettingsView()
+        }
+    }
+}
+
+// MARK: - Settings
+
+/// How Set Location holds the spot.
+enum LocationMethod: String, CaseIterable, Identifiable {
+    /// The Mac keeps a session open and re-sends the location (the original method).
+    case session
+    /// Xcode's devicectl hands the location to the phone, which then holds it with nothing connected.
+    case handOff
+
+    static let key = "locationMethod"
+    static var current: LocationMethod {
+        LocationMethod(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .session
+    }
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .session: "Live session"
+        case .handOff: "Hand off to iPhone"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .session:
+            "The Mac stays connected and keeps re-sending the location. Keep imsomeeked open and the Mac awake."
+        case .handOff:
+            "Sets the location once with Xcode's devicectl. The iPhone then holds it on its own — the Mac can sleep or be closed — until you press Reset or the iPhone restarts. Needs Xcode."
+        }
+    }
+}
+
+struct SettingsView: View {
+    @AppStorage(LocationMethod.key) private var method = LocationMethod.session.rawValue
+
+    var body: some View {
+        Form {
+            Picker("Location method", selection: $method) {
+                ForEach(LocationMethod.allCases) { option in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.title)
+                        Text(option.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .tag(option.rawValue)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            Text("Applies the next time you press Set Location.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .frame(width: 480)
     }
 }
