@@ -10,6 +10,5 @@
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSAppleEventsUsageDescription</key><string>imsomeeked texts you through Messages when a phone drops its location.</string>
 </dict>
 </plist>
