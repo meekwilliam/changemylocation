@@ -30,6 +30,9 @@ jobs:
           --collect-all developer_disk_image
           --collect-all pmd_pytcp
           --collect-all pytun_pmd3
+          --collect-all ipsw_parser
+          --collect-all pyimg4
+          --recursive-copy-metadata pymobiledevice3
           imsomeeked.py
 
       - name: Self-test the build
