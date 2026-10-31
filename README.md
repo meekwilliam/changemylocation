@@ -14,7 +14,7 @@
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
 
-<!-- Screenshot: add docs/screenshot.png here -->
+<img src="docs/screenshot.jpg" alt="changemylocation on a Mac: a map of Shibuya with the picked location pinned and a Set Location button" width="800">
 
 <details>
 <summary><b>Table of contents</b></summary>
