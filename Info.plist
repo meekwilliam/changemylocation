@@ -7,7 +7,7 @@
     <key>CFBundleIdentifier</key><string>com.meekwilliam.imsomeeked</string>
     <key>CFBundleExecutable</key><string>imsomeeked</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleShortVersionString</key><string>1.2</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
