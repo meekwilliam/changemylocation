@@ -65,7 +65,11 @@ changemylocation is tested on iOS 27.
 
 ## Install
 
-**macOS:** [Download `changemylocation.zip`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip), unzip it, and move **changemylocation** to Applications. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run `xattr -dr com.apple.quarantine /Applications/changemylocation.app`.
+**macOS:** [Download `changemylocation.zip`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip), unzip it, and move **changemylocation** to Applications. The app isn't notarized by Apple, so the first time you open it, macOS says it "could not verify" the app. Click **Done**, then go to **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to changemylocation. Or run this in Terminal instead:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/changemylocation.app
+```
 
 **Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `changemylocation.exe`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
 
