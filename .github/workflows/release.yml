@@ -2,7 +2,9 @@ name: Release
 
 # Pushing a tag like v1.5 builds both apps here on GitHub, so every download can be traced to this repo's code:
 # each file gets a SHA-256 checksum and a signed build provenance record (check one with
-# `gh attestation verify <file> --repo meekwilliam/changemylocation`). The release is left as a draft to review.
+# `gh attestation verify <file> --repo meekwilliam/changemylocation`). The Mac zip is also signed with the
+# project's Sparkle key (repo secret SPARKLE_PRIVATE_KEY) and listed in appcast.xml, the feed the Mac app checks
+# for updates; it only sees a release once the draft is published. The release is left as a draft to review.
 
 on:
   push:
@@ -21,10 +23,12 @@ jobs:
       - name: Check the tag matches both apps' version
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          mac=$(grep -A0 'CFBundleShortVersionString' Info.plist | sed -E 's/.*<string>([^<]+)<\/string>.*/\1/')
+          plist() { grep "<key>$1</key>" Info.plist | sed -E 's/.*<string>([^<]+)<\/string>.*/\1/'; }
+          mac=$(plist CFBundleShortVersionString)
+          build=$(plist CFBundleVersion)
           win=$(grep -E '^VERSION = ' windows/changemylocation.py | sed -E 's/VERSION = "([^"]+)".*/\1/')
-          echo "tag $tag, Mac $mac, Windows $win"
-          [ "$tag" = "$mac" ] && [ "$tag" = "$win" ]
+          echo "tag $tag, Mac $mac (build $build), Windows $win"
+          [ "$tag" = "$mac" ] && [ "$tag" = "$build" ] && [ "$tag" = "$win" ]
 
   mac:
     needs: version
@@ -35,10 +39,39 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Build changemylocation.zip
         run: CARGO="$(command -v cargo)" ./build.sh --zip
+      - name: Sign the update and write appcast.xml
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "Add the SPARKLE_PRIVATE_KEY repo secret"; exit 1; }
+          curl -fsSL -o sparkle.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+          mkdir sparkle && tar -xf sparkle.tar.xz -C sparkle
+          signature=$(printf '%s' "$SPARKLE_PRIVATE_KEY" | sparkle/bin/sign_update --ed-key-file - changemylocation.zip)
+          version="${GITHUB_REF_NAME#v}"
+          cat > appcast.xml <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>changemylocation</title>
+              <item>
+                <title>changemylocation $version</title>
+                <sparkle:version>$version</sparkle:version>
+                <sparkle:shortVersionString>$version</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+                <link>https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME</link>
+                <pubDate>$(date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <enclosure url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/changemylocation.zip" $signature type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          XML
+          cat appcast.xml
       - uses: actions/upload-artifact@v4
         with:
           name: changemylocation-mac
-          path: changemylocation.zip
+          path: |
+            changemylocation.zip
+            appcast.xml
 
   windows:
     needs: version
@@ -66,5 +99,5 @@ jobs:
         run: >
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft
           --title "changemylocation ${GITHUB_REF_NAME#v}" --notes "Release notes to come."
-          dist/changemylocation.zip dist/changemylocation.exe dist/SHA256SUMS.txt
+          dist/changemylocation.zip dist/appcast.xml dist/changemylocation.exe dist/SHA256SUMS.txt
           dist/THIRD_PARTY_LICENSES.txt dist/COPYING.GPL-3.0.txt

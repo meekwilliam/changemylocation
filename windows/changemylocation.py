@@ -31,7 +31,7 @@ logging.basicConfig(filename=APP_DIR / "changemylocation.log", level=logging.INF
                     format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("changemylocation")
 
-VERSION = "1.5.1"  # keep in step with Info.plist; the release workflow checks both against the tag
+VERSION = "1.6"  # keep in step with Info.plist; the release workflow checks both against the tag
 
 # OpenStreetMap's Nominatim asks every app to identify itself.
 USER_AGENT = "changemylocation/1.0 (+https://github.com/meekwilliam/changemylocation)"

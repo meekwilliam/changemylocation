@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import Sparkle
 
 // MARK: - Engine
 
@@ -46,8 +47,6 @@ final class Manager {
     var selectedID: String?
 
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
-    /// A newer release on GitHub, if there is one.
-    var update: (version: String, page: URL)?
 
     var statusText: String {
         if !Engine.installed { return "changemylocation is damaged; download it again" }
@@ -85,29 +84,6 @@ final class Manager {
         phones.removeAll { !$0.connected && !$0.holding }
         if selectedPhone == nil { selectedID = phones.first?.id }
     }
-
-    /// Looks for a newer release on GitHub (once per launch).
-    func checkForUpdate() async {
-        let api = URL(string: "https://api.github.com/repos/meekwilliam/changemylocation/releases/latest")!
-        guard let (data, _) = try? await URLSession.shared.data(from: api),
-              let release = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = release["tag_name"] as? String,
-              let page = (release["html_url"] as? String).flatMap(URL.init(string:)),
-              let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        else { return }
-        let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        if isNewer(latest, than: current) { update = (latest, page) }
-    }
-}
-
-/// Compares version numbers like 1.10 and 1.9 by their parts, not as text.
-func isNewer(_ a: String, than b: String) -> Bool {
-    let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
-    for i in 0..<max(x.count, y.count) {
-        let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
-        if p != q { return p > q }
-    }
-    return false
 }
 
 // MARK: - Phone
@@ -307,7 +283,6 @@ struct ContentView: View {
             }
             .padding(20)
         }
-        .task { await manager.checkForUpdate() }
         .task {
             await manager.refresh()
             // Keep the connection status current while the app is open.
@@ -436,12 +411,6 @@ struct ContentView: View {
     private var bottomPanel: some View {
         GlassEffectContainer(spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                if let update = manager.update {
-                    Link(destination: update.page) {
-                        pill("changemylocation \(update.version) is out. Click to download.", icon: "arrow.down.circle.fill", color: .blue)
-                    }
-                    .buttonStyle(.plain)
-                }
                 statusPill
                 locationCard
 
@@ -629,6 +598,9 @@ struct ContentView: View {
 
 @main
 struct ChangeMyLocationApp: App {
+    /// Sparkle: checks the release feed in the background and installs signed updates in place.
+    private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         Self.keepLocationsFromOldName()
@@ -652,5 +624,10 @@ struct ChangeMyLocationApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 780)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updater.checkForUpdates(nil) }
+            }
+        }
     }
 }

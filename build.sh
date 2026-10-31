@@ -21,14 +21,18 @@ swift build $SWIFT_ARGS
 BIN="$(swift build $SWIFT_ARGS --show-bin-path)"
 APP="changemylocation.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp icon/AppIcon.icns "$APP/Contents/Resources/"
 cp "$BIN/changemylocation" "$APP/Contents/MacOS/"
 cp .build/engine/changemylocation-cli "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+# Sparkle, the updater, ships as a framework next to the app's code.
+ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/changemylocation"
 # Drop debug symbols, which record the folders the app was built in.
 strip -x "$APP/Contents/MacOS/changemylocation" "$APP/Contents/MacOS/changemylocation-cli"
 codesign --force --sign - "$APP/Contents/MacOS/changemylocation-cli"
+codesign --force --deep --sign - "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --sign - "$APP"
 echo "Built $APP"
 if [ "$1" = "--zip" ]; then
