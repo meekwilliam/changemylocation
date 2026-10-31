@@ -14,9 +14,9 @@ jobs:
       run:
         working-directory: windows
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -56,7 +56,7 @@ jobs:
           pip-licenses --with-urls --with-license-file --no-license-path --format=plain-vertical --output-file dist/THIRD_PARTY_LICENSES.txt
           copy COPYING.GPL-3.0.txt dist\
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: changemylocation-windows
           path: |
