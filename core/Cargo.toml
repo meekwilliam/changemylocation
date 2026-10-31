@@ -23,6 +23,7 @@ idevice = { version = "=0.1.68", default-features = false, features = [
     "rsd",
     "xpc",
     "mobile_image_mounter",
+    "amfi",
     "tss",
 ] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "fs", "time"] }

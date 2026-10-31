@@ -46,6 +46,8 @@ final class Manager {
     var selectedID: String?
 
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
+    /// A newer release on GitHub, if there is one.
+    var update: (version: String, page: URL)?
 
     var statusText: String {
         if !Engine.installed { return "changemylocation is damaged; download it again" }
@@ -58,10 +60,10 @@ final class Manager {
         let r = await Engine.run(["list"])
         guard r.ok else { return }
         var seen: [String] = []
-        // One phone per line: udid, name, usb|wifi.
+        // One phone per line: udid, name, usb|wifi, then Developer Mode (on, off or unknown).
         for line in r.output.split(separator: "\n") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 3 else { continue }
+            guard fields.count >= 3 else { continue }
             seen.append(fields[0])
             let phone = phones.first { $0.id == fields[0] } ?? {
                 let new = Phone(id: fields[0], name: fields[1])
@@ -71,12 +73,41 @@ final class Manager {
             phone.name = fields[1]
             phone.connected = true
             phone.overCable = fields[2] == "usb"
+            phone.developerMode = fields.count > 3 ? ["on": true, "off": false][fields[3]] : nil
+            if phone.developerMode == false && !phone.revealedDeveloperMode {
+                // iOS hides the Developer Mode switch until a developer tool connects; show it once per launch.
+                phone.revealedDeveloperMode = true
+                Task { _ = await Engine.run(["reveal-developer-mode", phone.id]) }
+            }
         }
         // A sleeping phone drops out of view for a while; keep its tab while it holds a location from this app.
         for phone in phones where !seen.contains(phone.id) { phone.connected = false }
         phones.removeAll { !$0.connected && !$0.holding }
         if selectedPhone == nil { selectedID = phones.first?.id }
     }
+
+    /// Looks for a newer release on GitHub (once per launch).
+    func checkForUpdate() async {
+        let api = URL(string: "https://api.github.com/repos/meekwilliam/changemylocation/releases/latest")!
+        guard let (data, _) = try? await URLSession.shared.data(from: api),
+              let release = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tag = release["tag_name"] as? String,
+              let page = (release["html_url"] as? String).flatMap(URL.init(string:)),
+              let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        else { return }
+        let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        if isNewer(latest, than: current) { update = (latest, page) }
+    }
+}
+
+/// Compares version numbers like 1.10 and 1.9 by their parts, not as text.
+func isNewer(_ a: String, than b: String) -> Bool {
+    let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+    for i in 0..<max(x.count, y.count) {
+        let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+        if p != q { return p > q }
+    }
+    return false
 }
 
 // MARK: - Phone
@@ -89,6 +120,9 @@ final class Phone: Identifiable {
     var name: String
     var connected = true
     var overCable = false
+    /// Whether Developer Mode is on, when the phone says.
+    var developerMode: Bool?
+    var revealedDeveloperMode = false
     /// The spot picked on the map for this phone (not necessarily set yet).
     var selected: Place?
     /// The spot last handed to this phone. Remembered across launches, since the phone keeps it after the app quits.
@@ -273,6 +307,7 @@ struct ContentView: View {
             }
             .padding(20)
         }
+        .task { await manager.checkForUpdate() }
         .task {
             await manager.refresh()
             // Keep the connection status current while the app is open.
@@ -401,6 +436,12 @@ struct ContentView: View {
     private var bottomPanel: some View {
         GlassEffectContainer(spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
+                if let update = manager.update {
+                    Link(destination: update.page) {
+                        pill("changemylocation \(update.version) is out. Click to download.", icon: "arrow.down.circle.fill", color: .blue)
+                    }
+                    .buttonStyle(.plain)
+                }
                 statusPill
                 locationCard
 
@@ -408,6 +449,10 @@ struct ContentView: View {
                     pill(phone.message,
                          icon: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
                          color: phone.messageIsError ? .orange : .green)
+                }
+                if phone?.developerMode == false {
+                    pill("Turn on Developer Mode on the iPhone: Settings › Privacy & Security › Developer Mode, then let it restart.",
+                         icon: "wrench.and.screwdriver.fill", color: .orange)
                 }
                 if !Engine.installed {
                     pill("The app is missing its engine. Download changemylocation again.", icon: "exclamationmark.triangle.fill", color: .orange)

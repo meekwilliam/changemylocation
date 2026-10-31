@@ -11,6 +11,7 @@ use idevice::{
     IdeviceError, IdeviceService, ReadWrite, RsdService,
     core_device::CoreDeviceServiceClient,
     core_device_proxy::CoreDeviceProxy,
+    amfi::AmfiClient,
     lockdown::LockdownClient,
     mobile_image_mounter::ImageMounter,
     provider::{IdeviceProvider, RsdProvider},
@@ -82,6 +83,8 @@ pub struct Phone {
     pub udid: String,
     pub name: String,
     pub link: Link,
+    /// Whether Developer Mode is on, when the phone says.
+    pub developer_mode: Option<bool>,
 }
 
 /// The iPhones Apple's device service sees, one entry each (by cable when both are available).
@@ -103,7 +106,8 @@ pub async fn phones() -> Result<Vec<Phone>> {
         let name = device_name(&provider)
             .await
             .unwrap_or_else(|| format!("iPhone {}", &device.udid[device.udid.len().saturating_sub(4)..]));
-        found.push(Phone { udid: device.udid, name, link });
+        let developer_mode = developer_mode(&provider).await;
+        found.push(Phone { udid: device.udid, name, link, developer_mode });
     }
     found.sort_by_key(|p| p.name.to_lowercase());
     Ok(found)
@@ -116,6 +120,14 @@ pub async fn set_location(udid: &str, latitude: f64, longitude: f64) -> Result<(
     input.insert("latitude".into(), plist::Value::Real(latitude));
     input.insert("longitude".into(), plist::Value::Real(longitude));
     invoke(&provider, SET, input).await
+}
+
+/// Makes the Developer Mode switch appear in the phone's Settings › Privacy & Security. iOS hides it until a
+/// developer tool has connected, which on a Mac is normally Xcode.
+pub async fn reveal_developer_mode(udid: &str) -> Result<()> {
+    let provider = provider(udid).await?;
+    let mut amfi = AmfiClient::connect(&provider).await?;
+    Ok(amfi.reveal_developer_mode_option_in_ui().await?)
 }
 
 /// Back to the real location. The phone has to be reachable (cable or same Wi-Fi).
@@ -139,14 +151,22 @@ async fn provider(udid: &str) -> Result<impl IdeviceProvider> {
 
 /// Reads a lockdown value, starting a paired session if the phone won't answer without one.
 async fn lockdown_value(provider: &dyn IdeviceProvider, key: &str) -> Result<plist::Value> {
+    lockdown_value_in(provider, key, None).await
+}
+
+async fn lockdown_value_in(provider: &dyn IdeviceProvider, key: &str, domain: Option<&str>) -> Result<plist::Value> {
     let mut lockdown = LockdownClient::connect(provider).await?;
-    match lockdown.get_value(Some(key), None).await {
+    match lockdown.get_value(Some(key), domain).await {
         Ok(v) => Ok(v),
         Err(_) => {
             lockdown.start_session(&provider.get_pairing_file().await?).await?;
-            Ok(lockdown.get_value(Some(key), None).await?)
+            Ok(lockdown.get_value(Some(key), domain).await?)
         }
     }
+}
+
+async fn developer_mode(provider: &dyn IdeviceProvider) -> Option<bool> {
+    lockdown_value_in(provider, "DeveloperModeStatus", Some("com.apple.security.mac.amfi")).await.ok()?.as_boolean()
 }
 
 async fn device_name(provider: &dyn IdeviceProvider) -> Option<String> {

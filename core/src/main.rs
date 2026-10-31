@@ -1,16 +1,18 @@
 //! `changemylocation-cli`: the engine from the command line.
 //!
-//!     changemylocation-cli list                     one phone per line: udid<TAB>name<TAB>usb|wifi
+//!     changemylocation-cli list                     one phone per line: udid<TAB>name<TAB>usb|wifi<TAB>devmode
+//!                                                   (devmode is on, off or unknown)
 //!     changemylocation-cli set <udid> <lat> <lon>   hand the phone a location to hold
 //!     changemylocation-cli clear <udid>             back to the real location
+//!     changemylocation-cli reveal-developer-mode <udid>   show the Developer Mode switch in the phone's Settings
 
 use std::process::ExitCode;
 
 use std::{future::Future, time::Duration};
 
-use changemylocation_core::{Error, Link, Result, clear_location, phones, set_location};
+use changemylocation_core::{Error, Link, Result, clear_location, phones, reveal_developer_mode, set_location};
 
-const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid>";
+const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid> | reveal-developer-mode <udid>";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -25,7 +27,12 @@ async fn main() -> ExitCode {
         ["list"] => phones().await.map(|list| {
             for p in list {
                 let link = if p.link == Link::Usb { "usb" } else { "wifi" };
-                println!("{}\t{}\t{link}", p.udid, p.name);
+                let devmode = match p.developer_mode {
+                    Some(true) => "on",
+                    Some(false) => "off",
+                    None => "unknown",
+                };
+                println!("{}\t{}\t{link}\t{devmode}", p.udid, p.name);
             }
         }),
         ["set", udid, lat, lon] => match (lat.parse(), lon.parse()) {
@@ -36,6 +43,7 @@ async fn main() -> ExitCode {
             }
         },
         ["clear", udid] => within_a_minute(clear_location(udid)).await,
+        ["reveal-developer-mode", udid] => within_a_minute(reveal_developer_mode(udid)).await,
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);

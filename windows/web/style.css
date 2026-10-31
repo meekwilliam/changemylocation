@@ -68,6 +68,8 @@ body {
   backdrop-filter: blur(12px); font-size: 13px; font-weight: 500;
 }
 #message.ok { color: var(--ok); }
+#devmode { color: var(--warn); border-radius: 18px; }
+#update { border: 0; text-align: left; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 #message.error { color: var(--warn); }
 #card {
   border-radius: 28px; padding: 18px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(12px);

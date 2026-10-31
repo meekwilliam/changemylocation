@@ -9,11 +9,13 @@ app) and Developer Mode on the phone.
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 from pymobiledevice3.exceptions import AlreadyMountedError
 from pymobiledevice3.lockdown import create_using_usbmux
 from pymobiledevice3.remote.core_device.location_service import LocationService
 from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
+from pymobiledevice3.services.amfi import AmfiService
 from pymobiledevice3.services.mobile_image_mounter import auto_mount
 from pymobiledevice3.usbmux import list_devices
 
@@ -29,6 +31,7 @@ class Phone:
     udid: str
     name: str
     connection: str  # "USB" or "Network"
+    developer_mode: Optional[bool] = None  # None when the phone doesn't say
 
 
 async def phones() -> list[Phone]:
@@ -37,21 +40,39 @@ async def phones() -> list[Phone]:
     for device in await list_devices():
         if device.serial in found and found[device.serial].connection == "USB":
             continue
-        name = found[device.serial].name if device.serial in found else await _name(device.serial)
-        found[device.serial] = Phone(device.serial, name, device.connection_type)
+        if device.serial in found:
+            name, developer_mode = found[device.serial].name, found[device.serial].developer_mode
+        else:
+            name, developer_mode = await _info(device.serial)
+        found[device.serial] = Phone(device.serial, name, device.connection_type, developer_mode)
     return sorted(found.values(), key=lambda p: p.name.lower())
 
 
-async def _name(udid: str) -> str:
+async def _info(udid: str) -> tuple[str, Optional[bool]]:
+    """The phone's name, and whether Developer Mode is on."""
     try:
         lockdown = await create_using_usbmux(serial=udid, autopair=False)
         try:
-            return lockdown.short_info.get("DeviceName") or f"iPhone {udid[-4:]}"
+            name = lockdown.short_info.get("DeviceName") or f"iPhone {udid[-4:]}"
+            try:
+                developer_mode = bool(await lockdown.get_value("com.apple.security.mac.amfi", "DeveloperModeStatus"))
+            except Exception:
+                developer_mode = None
+            return name, developer_mode
         finally:
             await lockdown.close()
     except Exception as e:  # not trusted yet, locked, or gone: still list it
-        logger.info("couldn't read %s's name: %s", udid, e)
-        return f"iPhone {udid[-4:]}"
+        logger.info("couldn't read %s's details: %s", udid, e)
+        return f"iPhone {udid[-4:]}", None
+
+
+async def reveal_developer_mode(udid: str) -> None:
+    """Shows the Developer Mode switch in Settings › Privacy & Security; iOS hides it until a developer tool connects."""
+    lockdown = await create_using_usbmux(serial=udid, autopair=False)
+    try:
+        await AmfiService(lockdown).reveal_developer_mode_option_in_ui()
+    finally:
+        await lockdown.close()
 
 
 async def _invoke(udid: str, action: str, input_: dict) -> None:

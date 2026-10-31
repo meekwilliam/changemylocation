@@ -73,6 +73,14 @@ xattr -dr com.apple.quarantine /Applications/changemylocation.app
 
 **Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `changemylocation.exe`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
 
+**Check a download (optional):** every release is built by GitHub Actions from this repo's code, so you can confirm a file came from here. Each release lists SHA-256 checksums in `SHA256SUMS.txt`, and with the [GitHub CLI](https://cli.github.com) you can check the signed build record:
+
+```sh
+gh attestation verify changemylocation.zip --repo meekwilliam/changemylocation
+```
+
+The app tells you when a newer version is out.
+
 ## Set up your iPhone (once)
 
 1. Plug the iPhone into your computer, unlock it, and tap **Trust**.

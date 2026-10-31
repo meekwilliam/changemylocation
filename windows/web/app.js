@@ -14,6 +14,8 @@ let phones = [];
 let selectedId = null;
 let busy = false;
 let phonesError = "";
+// Phones whose hidden Developer Mode switch was already revealed this launch.
+const revealed = new Set();
 // The spot picked on the map for each phone (not necessarily set yet). DRAFT holds it while no phone is connected.
 const picked = {};
 const DRAFT = "";
@@ -52,6 +54,7 @@ function render() {
   $("place-coord").textContent = spot ? `${spot.lat.toFixed(6)}, ${spot.lon.toFixed(6)}` : "";
   $("set").disabled = busy || !p || !spot;
   $("reset").disabled = busy || !p;
+  $("devmode").hidden = !(p && p.developerMode === false);
   $("set").textContent = busy ? "Working…" : "Set Location";
   if (spot) marker.setLatLng([spot.lat, spot.lon]).addTo(map);
   else marker.remove();
@@ -96,6 +99,13 @@ async function refresh() {
     const p = phone();
     if (p && picked[DRAFT] && !picked[p.udid]) picked[p.udid] = picked[DRAFT];
     if (p) delete picked[DRAFT];
+    for (const ph of phones) {
+      // iOS hides the Developer Mode switch until a developer tool connects; show it once per launch.
+      if (ph.developerMode === false && !revealed.has(ph.udid)) {
+        revealed.add(ph.udid);
+        api().reveal_developer_mode(ph.udid);
+      }
+    }
   }
   render();
 }
@@ -202,7 +212,17 @@ async function resetLocation() {
 $("set").onclick = setLocation;
 $("reset").onclick = resetLocation;
 
+async function checkForUpdate() {
+  const u = await api().update();
+  if (!u) return;
+  const b = $("update");
+  b.textContent = `changemylocation ${u.version} is out. Click to download.`;
+  b.onclick = () => api().open(u.url);
+  b.hidden = false;
+}
+
 window.addEventListener("pywebviewready", () => {
+  checkForUpdate();
   refresh();
   setInterval(() => { if (!busy) refresh(); }, 5000);
 });

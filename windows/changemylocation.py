@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 import webview
@@ -29,6 +30,8 @@ APP_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(filename=APP_DIR / "changemylocation.log", level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("changemylocation")
+
+VERSION = "1.5"  # keep in step with Info.plist; the release workflow checks both against the tag
 
 # OpenStreetMap's Nominatim asks every app to identify itself.
 USER_AGENT = "changemylocation/1.0 (+https://github.com/meekwilliam/changemylocation)"
@@ -84,7 +87,30 @@ class Api:
             logger.warning("listing phones failed: %s", e)
             return {"error": "Can't see any iPhones. Install Apple Devices from the Microsoft Store, then plug in your iPhone."}
         last = load_state()
-        return [{"udid": p.udid, "name": p.name, "connection": p.connection, "last": last.get(p.udid)} for p in found]
+        return [{"udid": p.udid, "name": p.name, "connection": p.connection, "developerMode": p.developer_mode,
+                 "last": last.get(p.udid)} for p in found]
+
+    def reveal_developer_mode(self, udid: str) -> None:
+        try:
+            asyncio.run(phones.reveal_developer_mode(udid))
+            logger.info("[%s] revealed the Developer Mode switch", udid[-4:])
+        except Exception as e:
+            logger.info("[%s] couldn't reveal the Developer Mode switch: %s", udid[-4:], e)
+
+    def update(self):
+        """A newer release on GitHub as {"version", "url"}, or None."""
+        release = self._get("https://api.github.com/repos/meekwilliam/changemylocation/releases/latest")
+        tag = release.get("tag_name", "") if isinstance(release, dict) else ""
+        latest = tag.removeprefix("v")
+        def parts(v):
+            return [int(x) if x.isdigit() else 0 for x in v.split(".")]
+        if latest and parts(latest) > parts(VERSION):
+            return {"version": latest, "url": release.get("html_url")}
+        return None
+
+    def open(self, url: str) -> None:
+        if url.startswith("https://github.com/meekwilliam/changemylocation/"):
+            webbrowser.open(url)
 
     def set(self, udid: str, lat: float, lon: float, name: str = "") -> dict:
         logger.info("[%s] Set Location pressed (%.5f, %.5f)", udid[-4:], lat, lon)

@@ -1,0 +1,70 @@
+name: Release
+
+# Pushing a tag like v1.5 builds both apps here on GitHub, so every download can be traced to this repo's code:
+# each file gets a SHA-256 checksum and a signed build provenance record (check one with
+# `gh attestation verify <file> --repo meekwilliam/changemylocation`). The release is left as a draft to review.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches both apps' version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          mac=$(grep -A0 'CFBundleShortVersionString' Info.plist | sed -E 's/.*<string>([^<]+)<\/string>.*/\1/')
+          win=$(grep -E '^VERSION = ' windows/changemylocation.py | sed -E 's/VERSION = "([^"]+)".*/\1/')
+          echo "tag $tag, Mac $mac, Windows $win"
+          [ "$tag" = "$mac" ] && [ "$tag" = "$win" ]
+
+  mac:
+    needs: version
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add Rust's Mac targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build changemylocation.zip
+        run: CARGO="$(command -v cargo)" ./build.sh --zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: changemylocation-mac
+          path: changemylocation.zip
+
+  windows:
+    needs: version
+    uses: ./.github/workflows/windows.yml
+
+  publish:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum changemylocation.zip changemylocation.exe | tee SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/changemylocation.zip
+            dist/changemylocation.exe
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft
+          --title "changemylocation ${GITHUB_REF_NAME#v}" --notes "Release notes to come."
+          dist/changemylocation.zip dist/changemylocation.exe dist/SHA256SUMS.txt
+          dist/THIRD_PARTY_LICENSES.txt dist/COPYING.GPL-3.0.txt
