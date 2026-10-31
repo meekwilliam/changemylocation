@@ -14,9 +14,6 @@
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
 
-> [!TIP]
-> **Does your old location spoofer no longer work since iOS 17?** imsomeeked uses the location service that Apple's own developer tools use on iOS 17 and later.
-
 <!-- Screenshot: add docs/screenshot.png here -->
 
 <details>

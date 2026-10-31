@@ -4,6 +4,8 @@
 set -e
 cd "$(dirname "$0")"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
+# Keep this machine's folder names (the username, the checkout) out of the engine binary.
+export RUSTFLAGS="--remap-path-prefix=$HOME/.cargo/registry/src=crates --remap-path-prefix=$HOME/.cargo/git/checkouts=git --remap-path-prefix=$HOME/.rustup=rustup --remap-path-prefix=$PWD=imsomeeked"
 
 # The engine (core/) that talks to the iPhone, as one binary for both chip types.
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -23,6 +25,8 @@ mkdir -p "$APP/Contents/MacOS"
 cp "$BIN/imsomeeked" "$APP/Contents/MacOS/"
 cp .build/engine/imsomeeked-cli "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+# Drop debug symbols, which record the folders the app was built in.
+strip -x "$APP/Contents/MacOS/imsomeeked" "$APP/Contents/MacOS/imsomeeked-cli"
 codesign --force --sign - "$APP/Contents/MacOS/imsomeeked-cli"
 codesign --force --sign - "$APP"
 echo "Built $APP"
