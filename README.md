@@ -14,7 +14,7 @@
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
 
-<img src="docs/screenshot.jpg" alt="changemylocation on a Mac: a map of Shibuya with the picked location pinned and a Set Location button" width="800">
+<img src="docs/demo.gif" alt="Right-clicking San José airport in changemylocation on a Mac and choosing Set Location Here; the iPhone's Maps app, shown with iPhone Mirroring on the right, jumps there" width="800">
 
 <details>
 <summary><b>Table of contents</b></summary>
