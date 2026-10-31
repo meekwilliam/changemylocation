@@ -14,6 +14,9 @@
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
 
+> [!TIP]
+> **Does your old location spoofer no longer work since iOS 17?** imsomeeked uses the location service that Apple's own developer tools use on iOS 17 and later.
+
 <!-- Screenshot: add docs/screenshot.png here -->
 
 <details>
@@ -36,15 +39,11 @@
 ## Features
 
 - **Change your iPhone's GPS location** to anywhere: search an address or place, click the map, or paste coordinates (`lat, lon`).
-- **Holds the location without staying connected.** The iPhone runs the simulation itself, so you can unplug it, lock it, take it off your Wi-Fi, or close the laptop.
+- **Holds the location without staying connected.** The iPhone runs the simulation itself, you can unplug it, lock it, and take it off Wi-Fi.
 - **No jailbreak, and nothing to install on the iPhone.**
 - **iOS 17 and later**, including iOS 18, iOS 26 and iOS 27.
 - **Works over a USB cable or Wi-Fi.**
-- **Several iPhones at once**, each in its own tab.
-- **One-click reset** back to your real location. Restarting the iPhone also resets it.
-
-After the iPhone restarts, plug it in and unlock it the first time you set a location, so imsomeeked can load the phone's developer tools. After that, Wi-Fi works again.
-- **Remembers each phone's last spot**, so it's quick to set again after a restart.
+- **Works on several iPhones at once.**
 - **macOS and Windows (beta).** Free and open source.
 
 ## How it compares
@@ -83,11 +82,10 @@ imsomeeked is tested on iOS 27.
 
 ## Use
 
-1. Search for a place, click the map, or paste coordinates. On a Mac you can also right-click the map.
+1. Search for a place, click the map, or paste coordinates. 
 2. Press **Set Location**. When it says the iPhone holds the location on its own, you can disconnect.
 3. To go back to your real location, press **Reset** (↺). The phone has to be reachable for this, by cable or on the same Wi-Fi. Restarting the iPhone also resets it.
 
-After the iPhone restarts, plug it in and unlock it the first time you set a location, so imsomeeked can load the phone's developer tools. After that, Wi-Fi works again.
 
 ## FAQ
 
