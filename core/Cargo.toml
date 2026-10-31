@@ -29,3 +29,16 @@ tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "fs", "time
 plist = "1.10"
 dirs = "7"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = { version = "0.3", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+
+# Talks to the iPhone over USB itself, for Windows PCs without Apple's device service. On Windows it goes through
+# libusb (built in), which works with the libusb0 driver imsomeeked installs; elsewhere through nusb.
+[target.'cfg(windows)'.dependencies]
+rusbmux = { git = "https://github.com/abdullah-albanna/rusbmux", rev = "1a5eb5e361ae012e3e280fc265894028d2ae4dc4", default-features = false, features = ["rusb", "rusb-vendored"], optional = true }
+
+[target.'cfg(not(windows))'.dependencies]
+rusbmux = { git = "https://github.com/abdullah-albanna/rusbmux", rev = "1a5eb5e361ae012e3e280fc265894028d2ae4dc4", default-features = false, features = ["nusb"], optional = true }
+
+[features]
+direct-usb = ["dep:rusbmux", "dep:futures", "dep:uuid"]

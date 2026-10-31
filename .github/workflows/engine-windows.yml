@@ -1,0 +1,52 @@
+name: Windows engine
+
+# The engine for Windows without Apple Devices: imsomeeked-cli.exe talks to the iPhone over USB itself, through
+# the libusb0 driver that usb-driver.exe installs once (built from rusbmux's installer).
+
+on:
+  push:
+    branches: [main, windows-usb]
+    paths: ["core/**", ".github/workflows/engine-windows.yml"]
+  workflow_dispatch:
+
+env:
+  RUSBMUX_REV: 1a5eb5e361ae012e3e280fc265894028d2ae4dc4
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Rust
+        run: rustup update stable && rustup default stable
+
+      - name: Build imsomeeked-cli.exe
+        run: cargo build --release --manifest-path core/Cargo.toml --features direct-usb
+
+      - name: Build usb-driver.exe
+        shell: bash
+        run: |
+          git clone -q https://github.com/abdullah-albanna/rusbmux rusbmux
+          git -C rusbmux checkout -q $RUSBMUX_REV
+          cargo build --release --manifest-path rusbmux/windows/rusbmux-usb-win-driver/Cargo.toml
+
+      - name: Self-test with no iPhone plugged in
+        shell: pwsh
+        run: |
+          core\target\release\imsomeeked-cli.exe list
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Collect files
+        shell: bash
+        run: |
+          mkdir dist
+          cp core/target/release/imsomeeked-cli.exe dist/
+          cp rusbmux/windows/rusbmux-usb-win-driver/target/release/rusbmux-usb-win-driver.exe dist/usb-driver.exe
+          cp rusbmux/LICENSE-MIT dist/rusbmux-LICENSE-MIT.txt
+          cp rusbmux/windows/LICENSE-LIBUSB*.txt dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imsomeeked-windows-engine
+          path: dist

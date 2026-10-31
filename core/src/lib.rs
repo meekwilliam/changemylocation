@@ -3,7 +3,11 @@
 //! Set Location calls the phone's CoreDevice location service over Apple's developer tunnel. The phone's own
 //! `dtlocationd` then runs the simulation with nothing connected, until Reset or a restart. The tunnel runs on a
 //! userspace TCP stack, so nothing needs admin rights; the iPhone is reached through Apple's device service
-//! (`usbmuxd`), which macOS has built in and Windows gets from the Apple Devices app.
+//! (`usbmuxd`), which macOS has built in and Windows gets from the Apple Devices app. Without it, the `direct-usb`
+//! feature talks to the phone over USB itself (see `direct`).
+
+#[cfg(feature = "direct-usb")]
+mod direct;
 
 use std::{borrow::Cow, fmt, path::PathBuf};
 
@@ -86,8 +90,15 @@ pub struct Phone {
 
 /// The iPhones Apple's device service sees, one entry each (by cable when both are available).
 pub async fn phones() -> Result<Vec<Phone>> {
+    let devices = match devices().await {
+        Ok(devices) => devices,
+        #[cfg(feature = "direct-usb")]
+        Err(_) => return direct::phones().await,
+        #[cfg(not(feature = "direct-usb"))]
+        Err(e) => return Err(e),
+    };
     let mut found: Vec<Phone> = Vec::new();
-    for device in devices().await? {
+    for device in devices {
         let link = match device.connection_type {
             Connection::Usb => Link::Usb,
             Connection::Network(_) => Link::WiFi,
@@ -111,17 +122,31 @@ pub async fn phones() -> Result<Vec<Phone>> {
 
 /// Hands the spot to the phone, which then holds it on its own until Reset or a restart.
 pub async fn set_location(udid: &str, latitude: f64, longitude: f64) -> Result<()> {
-    let provider = provider(udid).await?;
     let mut input = plist::Dictionary::new();
     input.insert("latitude".into(), plist::Value::Real(latitude));
     input.insert("longitude".into(), plist::Value::Real(longitude));
-    invoke(&provider, SET, input).await
+    run(udid, SET, input).await
 }
 
 /// Back to the real location. The phone has to be reachable (cable or same Wi-Fi).
 pub async fn clear_location(udid: &str) -> Result<()> {
-    let provider = provider(udid).await?;
-    invoke(&provider, CLEAR, plist::Dictionary::new()).await
+    run(udid, CLEAR, plist::Dictionary::new()).await
+}
+
+/// Calls one location action on the phone, through Apple's device service if it's running, otherwise over USB.
+async fn run(udid: &str, action: &str, input: plist::Dictionary) -> Result<()> {
+    match devices().await {
+        Ok(devices) => invoke(&provider(devices, udid)?, action, input).await,
+        #[cfg(feature = "direct-usb")]
+        Err(_) => {
+            let phone = direct::connect(udid).await?;
+            let result = invoke(&phone.provider, action, input).await;
+            phone.close().await;
+            result
+        }
+        #[cfg(not(feature = "direct-usb"))]
+        Err(e) => Err(e),
+    }
 }
 
 async fn devices() -> Result<Vec<UsbmuxdDevice>> {
@@ -130,8 +155,8 @@ async fn devices() -> Result<Vec<UsbmuxdDevice>> {
 }
 
 /// A connection to the phone through Apple's device service, preferring the cable over Wi-Fi.
-async fn provider(udid: &str) -> Result<impl IdeviceProvider> {
-    let mut matching: Vec<UsbmuxdDevice> = devices().await?.into_iter().filter(|d| d.udid == udid).collect();
+fn provider(devices: Vec<UsbmuxdDevice>, udid: &str) -> Result<impl IdeviceProvider> {
+    let mut matching: Vec<UsbmuxdDevice> = devices.into_iter().filter(|d| d.udid == udid).collect();
     matching.sort_by_key(|d| !matches!(d.connection_type, Connection::Usb));
     let device = matching.into_iter().next().ok_or_else(|| Error::NotFound(udid.to_string()))?;
     Ok(device.to_provider(UsbmuxdAddr::default(), LABEL))
