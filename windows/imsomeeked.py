@@ -129,20 +129,43 @@ class Api:
 
 
 def selftest() -> int:
-    """`imsomeeked --selftest`: checks the build bundled everything (used by CI, where no window can open)."""
-    import pymobiledevice3.remote.core_device.location_service  # noqa: F401
-    import pymobiledevice3.remote.userspace_tunnel  # noqa: F401
-    import pymobiledevice3.services.mobile_image_mounter  # noqa: F401
+    """`imsomeeked --selftest`: checks the build bundled everything (used by CI, where no window can open). The
+    exe has no console, so the result goes to %APPDATA%\\imsomeeked\\selftest.txt."""
+    try:
+        import pymobiledevice3.remote.core_device.location_service  # noqa: F401
+        import pymobiledevice3.remote.userspace_tunnel  # noqa: F401
+        import pymobiledevice3.services.mobile_image_mounter  # noqa: F401
+    except Exception:
+        import traceback
+        (APP_DIR / "selftest.txt").write_text(traceback.format_exc())
+        return 1
     missing = [f for f in ("index.html", "app.js", "style.css", "vendor/leaflet/leaflet.js") if not (web_dir() / f).is_file()]
     (APP_DIR / "selftest.txt").write_text("missing: " + ", ".join(missing) if missing else "ok")
     return 1 if missing else 0
 
 
+def close_splash() -> None:
+    """Closes the "Starting…" card the exe shows while it unpacks (only there in the PyInstaller build)."""
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except ImportError:
+        pass
+
+
 def main() -> None:
     if "--selftest" in sys.argv:
+        close_splash()
         sys.exit(selftest())
-    webview.create_window("imsomeeked", str(web_dir() / "index.html"), js_api=Api(),
-                          width=1100, height=760, min_size=(760, 560))
+    # Stay hidden until the page has drawn, so the window doesn't open blank and then fill in.
+    window = webview.create_window("imsomeeked", str(web_dir() / "index.html"), js_api=Api(),
+                                   width=1100, height=760, min_size=(760, 560), hidden=True)
+
+    def show() -> None:
+        close_splash()
+        window.show()
+
+    window.events.loaded += show
     webview.start()
 
 
