@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag like v1.5 builds both apps here on GitHub, so every download can be traced to this repo's code:
+# Pushing a tag like v1.7.0 (versions are 1.x.x) builds both apps here on GitHub, so every download can be traced to this repo's code:
 # each file gets a SHA-256 checksum and a signed build provenance record (check one with
 # `gh attestation verify <file> --repo meekwilliam/changemylocation`). The Mac zip is also signed with the
 # project's Sparkle key (repo secret SPARKLE_PRIVATE_KEY) and listed in appcast.xml, the feed the Mac app checks
