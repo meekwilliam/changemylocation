@@ -100,6 +100,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "changemylocation-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "idevice",
+ "plist",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,17 +361,6 @@ dependencies = [
  "tracing",
  "uuid",
  "webpki-roots",
-]
-
-[[package]]
-name = "imsomeeked-core"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "idevice",
- "plist",
- "tokio",
- "tracing-subscriber",
 ]
 
 [[package]]

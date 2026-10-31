@@ -13,8 +13,8 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: imsomeeked version, macOS/Windows version, and the iPhone's iOS version.
-      placeholder: imsomeeked 1.1, macOS 26.1, iOS 27.0.1
+      description: changemylocation version, macOS/Windows version, and the iPhone's iOS version.
+      placeholder: changemylocation 1.1, macOS 26.1, iOS 27.0.1
     validations:
       required: true
   - type: dropdown
@@ -35,5 +35,5 @@ body:
       label: Log
       description: |
         Paste the end of the log, with phone names and coordinates removed if you like.
-        macOS: `~/Library/Logs/imsomeeked.log` · Windows: `%APPDATA%\imsomeeked\imsomeeked.log`
+        macOS: `~/Library/Logs/changemylocation.log` · Windows: `%APPDATA%\changemylocation\changemylocation.log`
       render: text

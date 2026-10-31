@@ -22,9 +22,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller==6.22.3
 
-      - name: Build imsomeeked.exe
+      - name: Build changemylocation.exe
         run: >
-          pyinstaller --noconfirm --onefile --windowed --splash splash.png --name imsomeeked
+          pyinstaller --noconfirm --onefile --windowed --splash splash.png --name changemylocation
           --add-data "web;web"
           --collect-all pymobiledevice3
           --collect-all developer_disk_image
@@ -33,18 +33,18 @@ jobs:
           --collect-all ipsw_parser
           --collect-all pyimg4
           --recursive-copy-metadata pymobiledevice3
-          imsomeeked.py
+          changemylocation.py
 
       - name: Self-test the build
         shell: pwsh
         run: |
           # The exe has no console, so it writes its result to selftest.txt (printed below).
-          $p = Start-Process -FilePath dist\imsomeeked.exe -ArgumentList "--selftest" -NoNewWindow -PassThru `
+          $p = Start-Process -FilePath dist\changemylocation.exe -ArgumentList "--selftest" -NoNewWindow -PassThru `
             -RedirectStandardOutput selftest.out -RedirectStandardError selftest.err
           $null = $p.Handle  # needed for ExitCode to be filled in
           if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "Self-test timed out"; Get-Content selftest.out, selftest.err; exit 1 }
           Get-Content selftest.out, selftest.err
-          Get-Content "$env:APPDATA\imsomeeked\selftest.txt" -ErrorAction SilentlyContinue
+          Get-Content "$env:APPDATA\changemylocation\selftest.txt" -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { exit 1 }
 
       # The .exe bundles GPL-3.0 libraries (pymobiledevice3 and friends), so ship the GPL text and every bundled
@@ -57,8 +57,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: imsomeeked-windows
+          name: changemylocation-windows
           path: |
-            windows/dist/imsomeeked.exe
+            windows/dist/changemylocation.exe
             windows/dist/THIRD_PARTY_LICENSES.txt
             windows/dist/COPYING.GPL-3.0.txt

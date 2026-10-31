@@ -1,4 +1,4 @@
-"""The iPhone side of imsomeeked for Windows: list phones, then hand a location to one.
+"""The iPhone side of changemylocation for Windows: list phones, then hand a location to one.
 
 Set Location calls the phone's CoreDevice location service (the one Xcode's devicectl uses on a Mac). The phone's
 own dtlocationd then runs the simulation with nothing connected, until Reset or a restart. Everything goes through
@@ -17,7 +17,7 @@ from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
 from pymobiledevice3.services.mobile_image_mounter import auto_mount
 from pymobiledevice3.usbmux import list_devices
 
-logger = logging.getLogger("imsomeeked")
+logger = logging.getLogger("changemylocation")
 
 FEATURE = "com.apple.coredevice.feature.simulatelocation"
 SET = "com.apple.coredevice.action.setsimulatedlocation"

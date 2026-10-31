@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>imsomeeked</string>
-    <key>CFBundleDisplayName</key><string>imsomeeked</string>
-    <key>CFBundleIdentifier</key><string>com.meekwilliam.imsomeeked</string>
-    <key>CFBundleExecutable</key><string>imsomeeked</string>
+    <key>CFBundleName</key><string>changemylocation</string>
+    <key>CFBundleDisplayName</key><string>changemylocation</string>
+    <key>CFBundleIdentifier</key><string>com.meekwilliam.changemylocation</string>
+    <key>CFBundleExecutable</key><string>changemylocation</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.3</string>
+    <key>CFBundleShortVersionString</key><string>1.4</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>

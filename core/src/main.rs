@@ -1,16 +1,16 @@
-//! `imsomeeked-cli`: the engine from the command line.
+//! `changemylocation-cli`: the engine from the command line.
 //!
-//!     imsomeeked-cli list                     one phone per line: udid<TAB>name<TAB>usb|wifi
-//!     imsomeeked-cli set <udid> <lat> <lon>   hand the phone a location to hold
-//!     imsomeeked-cli clear <udid>             back to the real location
+//!     changemylocation-cli list                     one phone per line: udid<TAB>name<TAB>usb|wifi
+//!     changemylocation-cli set <udid> <lat> <lon>   hand the phone a location to hold
+//!     changemylocation-cli clear <udid>             back to the real location
 
 use std::process::ExitCode;
 
 use std::{future::Future, time::Duration};
 
-use imsomeeked_core::{Error, Link, Result, clear_location, phones, set_location};
+use changemylocation_core::{Error, Link, Result, clear_location, phones, set_location};
 
-const USAGE: &str = "usage: imsomeeked-cli list | set <udid> <lat> <lon> | clear <udid>";
+const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid>";
 
 #[tokio::main]
 async fn main() -> ExitCode {

@@ -1,16 +1,16 @@
 [package]
-name = "imsomeeked-core"
+name = "changemylocation-core"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "imsomeeked's engine: sets a simulated location on an iPhone that the phone then holds on its own"
-repository = "https://github.com/meekwilliam/imsomeeked"
+description = "changemylocation's engine: sets a simulated location on an iPhone that the phone then holds on its own"
+repository = "https://github.com/meekwilliam/changemylocation"
 
 [lib]
-name = "imsomeeked_core"
+name = "changemylocation_core"
 
 [[bin]]
-name = "imsomeeked-cli"
+name = "changemylocation-cli"
 path = "src/main.rs"
 
 [dependencies]

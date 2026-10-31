@@ -1,15 +1,15 @@
-# imsomeeked: iPhone location simulator for Mac and Windows
+# changemylocation: iPhone location simulator for Mac and Windows
 
 **Set a simulated GPS location on your own iPhone, for free.** You don't need a jailbreak or an app on the phone, and once the location is set, the iPhone **keeps it on its own**, even after you unplug it, lock it, or close your computer. Works with **iOS 17, 18, 26 and 27**.
 
 <p>
-  <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip"><img alt="Download for macOS" src="https://img.shields.io/badge/Download_for-macOS-1f6feb?style=for-the-badge"></a>
+  <a href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip"><img alt="Download for macOS" src="https://img.shields.io/badge/Download_for-macOS-1f6feb?style=for-the-badge"></a>
   &nbsp;
-  <a href="https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe"><img alt="Download for Windows (beta)" src="https://img.shields.io/badge/Download_for-Windows_(beta)-1f6feb?style=for-the-badge"></a>
+  <a href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe"><img alt="Download for Windows (beta)" src="https://img.shields.io/badge/Download_for-Windows_(beta)-1f6feb?style=for-the-badge"></a>
 </p>
 
-[![Latest release](https://img.shields.io/github/v/release/meekwilliam/imsomeeked)](https://github.com/meekwilliam/imsomeeked/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/meekwilliam/imsomeeked/total)](https://github.com/meekwilliam/imsomeeked/releases)
+[![Latest release](https://img.shields.io/github/v/release/meekwilliam/changemylocation)](https://github.com/meekwilliam/changemylocation/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/meekwilliam/changemylocation/total)](https://github.com/meekwilliam/changemylocation/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![iOS](https://img.shields.io/badge/iOS-17%2B-lightgrey)
@@ -45,7 +45,7 @@
 
 ## How it compares
 
-| | imsomeeked | Older spoofing tools | Live-connection tools |
+| | changemylocation | Older spoofing tools | Live-connection tools |
 |---|---|---|---|
 | iOS 17 and later | ✅ | ❌ often broken | ✅ |
 | Keeps the location after unplugging or sleeping | ✅ | varies | ❌ drops back to real GPS |
@@ -61,13 +61,13 @@
 | Extra software | None | [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, or [iTunes](https://apps.microsoft.com/detail/9pb2mz1zmb1s) |
 | iPhone | iOS 17 or later, **Developer Mode** on | iOS 17 or later, **Developer Mode** on |
 
-imsomeeked is tested on iOS 27.
+changemylocation is tested on iOS 27.
 
 ## Install
 
-**macOS:** [Download `imsomeeked.zip`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip), unzip it, and move **imsomeeked** to Applications. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run `xattr -dr com.apple.quarantine /Applications/imsomeeked.app`.
+**macOS:** [Download `changemylocation.zip`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip), unzip it, and move **changemylocation** to Applications. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run `xattr -dr com.apple.quarantine /Applications/changemylocation.app`.
 
-**Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `imsomeeked.exe`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
+**Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `changemylocation.exe`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
 
 ## Set up your iPhone (once)
 
@@ -87,7 +87,7 @@ imsomeeked is tested on iOS 27.
 ## FAQ
 
 **Do I need to jailbreak my iPhone?**
-No. imsomeeked uses Apple's developer location simulation, the same feature Xcode uses.
+No. changemylocation uses Apple's developer location simulation, the same feature Xcode uses.
 
 **Does the iPhone have to stay connected to the computer?**
 No. Once the location is set, the iPhone holds it by itself. In testing, it held for over 9 hours with the Mac asleep and the iPhone locked on battery, with no interruptions in the phone's own log.
@@ -109,30 +109,30 @@ It only changes the location your iPhone reports, and restarting the iPhone undo
 
 ## How it works
 
-On a Mac, imsomeeked's engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)) opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and asks it to simulate the location. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
+On a Mac, changemylocation's engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)) opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and asks it to simulate the location. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
 
-Many tools instead keep a live developer connection open the whole time. A locked iPhone's Wi-Fi naps, and the computer tears down its connection to a quiet phone. Either one ends a live session and sends the iPhone back to real GPS, which shows up as the location "jumping back". imsomeeked has no connection to lose.
+Many tools instead keep a live developer connection open the whole time. A locked iPhone's Wi-Fi naps, and the computer tears down its connection to a quiet phone. Either one ends a live session and sends the iPhone back to real GPS, which shows up as the location "jumping back". changemylocation has no connection to lose.
 
 ## Build from source
 
 **macOS**, which needs Swift (Xcode or the Command Line Tools) and [Rust](https://rustup.rs) with both Mac targets (`rustup target add aarch64-apple-darwin x86_64-apple-darwin`):
 
 ```sh
-./build.sh          # builds imsomeeked.app
-./build.sh --zip    # also makes imsomeeked.zip for a release
+./build.sh          # builds changemylocation.app
+./build.sh --zip    # also makes changemylocation.zip for a release
 ```
 
 **Windows:** see [`windows/`](windows#readme). The `.exe` is built by GitHub Actions ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)).
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](.github/CONTRIBUTING.md), open an [issue](https://github.com/meekwilliam/imsomeeked/issues), or ask in [Discussions](https://github.com/meekwilliam/imsomeeked/discussions).
+Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](.github/CONTRIBUTING.md), open an [issue](https://github.com/meekwilliam/changemylocation/issues), or ask in [Discussions](https://github.com/meekwilliam/changemylocation/discussions).
 
 ## Responsible use
 
-imsomeeked is meant for developing and testing apps on devices you own. Respect the terms of the apps and services you use, many of which forbid location spoofing, and don't use it to mislead people who rely on your location. You're responsible for how you use it.
+changemylocation is meant for developing and testing apps on devices you own. Respect the terms of the apps and services you use, many of which forbid location spoofing, and don't use it to mislead people who rely on your location. You're responsible for how you use it.
 
-imsomeeked is an independent project and isn't affiliated with or endorsed by Apple. Apple, iPhone and Xcode are trademarks of Apple Inc.
+changemylocation is an independent project and isn't affiliated with or endorsed by Apple. Apple, iPhone and Xcode are trademarks of Apple Inc.
 
 ## Acknowledgements
 
@@ -141,4 +141,4 @@ imsomeeked is an independent project and isn't affiliated with or endorsed by Ap
 
 ## License
 
-imsomeeked's source code is [MIT licensed](LICENSE). The Windows `.exe` bundles pymobiledevice3 and other GPL-3.0 libraries, so the Windows build as a whole is distributed under the [GPL-3.0](windows/COPYING.GPL-3.0.txt). Its full third-party license list ships with each release.
+changemylocation's source code is [MIT licensed](LICENSE). The Windows `.exe` bundles pymobiledevice3 and other GPL-3.0 libraries, so the Windows build as a whole is distributed under the [GPL-3.0](windows/COPYING.GPL-3.0.txt). Its full third-party license list ships with each release.

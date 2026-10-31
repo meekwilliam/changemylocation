@@ -3,11 +3,11 @@ import MapKit
 
 // MARK: - Engine
 
-/// imsomeeked's engine (core/), bundled next to the app's executable as `imsomeeked-cli`. It talks to the iPhone
+/// changemylocation's engine (core/), bundled next to the app's executable as `changemylocation-cli`. It talks to the iPhone
 /// directly over Apple's device service and developer tunnel, so the app needs neither Xcode nor admin rights.
 enum Engine {
     static var url: URL {
-        Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("imsomeeked-cli")
+        Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("changemylocation-cli")
     }
 
     static var installed: Bool { FileManager.default.isExecutableFile(atPath: url.path) }
@@ -48,7 +48,7 @@ final class Manager {
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
 
     var statusText: String {
-        if !Engine.installed { return "imsomeeked is damaged; download it again" }
+        if !Engine.installed { return "changemylocation is damaged; download it again" }
         guard let phone = selectedPhone else { return "No iPhone found" }
         if !phone.connected { return "Not reachable" }
         return phone.overCable ? "Connected by cable" : "Connected on Wi-Fi"
@@ -145,12 +145,12 @@ final class Phone: Identifiable {
         }
     }
 
-/// Records each Set and Reset in ~/Library/Logs/imsomeeked.log.
+/// Records each Set and Reset in ~/Library/Logs/changemylocation.log.
     func note(_ text: String) {
         let format = DateFormatter()
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let line = "\(format.string(from: Date())) [\(id.suffix(4))] app: \(text)\n"
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/imsomeeked.log")
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/changemylocation.log")
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
             h.write(Data(line.utf8))
@@ -410,7 +410,7 @@ struct ContentView: View {
                          color: phone.messageIsError ? .orange : .green)
                 }
                 if !Engine.installed {
-                    pill("The app is missing its engine. Download imsomeeked again.", icon: "exclamationmark.triangle.fill", color: .orange)
+                    pill("The app is missing its engine. Download changemylocation again.", icon: "exclamationmark.triangle.fill", color: .orange)
                 }
             }
         }
@@ -583,13 +583,25 @@ struct ContentView: View {
 // MARK: - App
 
 @main
-struct ImsomeekedApp: App {
+struct ChangeMyLocationApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
+        Self.keepLocationsFromOldName()
+    }
+
+    /// The app used to be called imsomeeked; bring over the spots each phone was holding under that name.
+    private static func keepLocationsFromOldName() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "movedFromImsomeeked"),
+              let old = UserDefaults(suiteName: "com.meekwilliam.imsomeeked") else { return }
+        for (key, value) in old.dictionaryRepresentation() where key.hasPrefix("held.") && defaults.object(forKey: key) == nil {
+            defaults.set(value, forKey: key)
+        }
+        defaults.set(true, forKey: "movedFromImsomeeked")
     }
 
     var body: some Scene {
-        WindowGroup("imsomeeked") {
+        WindowGroup("changemylocation") {
             ContentView()
                 .frame(minWidth: 760, minHeight: 600)
         }

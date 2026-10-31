@@ -1,4 +1,4 @@
-//! imsomeeked's engine. It talks to iPhones directly (no Xcode, no Python) and hands them a location to hold.
+//! changemylocation's engine. It talks to iPhones directly (no Xcode, no Python) and hands them a location to hold.
 //!
 //! Set Location calls the phone's CoreDevice location service over Apple's developer tunnel. The phone's own
 //! `dtlocationd` then runs the simulation with nothing connected, until Reset or a restart. The tunnel runs on a
@@ -18,7 +18,7 @@ use idevice::{
     usbmuxd::{Connection, UsbmuxdAddr, UsbmuxdConnection, UsbmuxdDevice},
 };
 
-const LABEL: &str = "imsomeeked";
+const LABEL: &str = "changemylocation";
 const FEATURE: &str = "com.apple.coredevice.feature.simulatelocation";
 const SET: &str = "com.apple.coredevice.action.setsimulatedlocation";
 const CLEAR: &str = "com.apple.coredevice.action.clearsimulatedlocation";
@@ -233,7 +233,14 @@ async fn developer_disk_image() -> Result<[Vec<u8>; 3]> {
 }
 
 fn cache_dir() -> PathBuf {
-    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("imsomeeked")
+    let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("changemylocation");
+    // Downloaded before the rename from imsomeeked; reuse it instead of fetching it again.
+    let old = base.join("imsomeeked");
+    if !dir.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &dir);
+    }
+    dir
 }
 
 /// Opens Apple's developer tunnel to the phone, makes sure the developer tools are loaded, and calls one location

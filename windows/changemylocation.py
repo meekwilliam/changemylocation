@@ -1,7 +1,7 @@
-"""imsomeeked for Windows: a map window for setting a simulated location on your own iPhone.
+"""changemylocation for Windows: a map window for setting a simulated location on your own iPhone.
 
 The window is a small web page (web/) shown with pywebview; it calls the Api methods below, which talk to the
-phone through phones.py. Each phone's last spot is remembered in %APPDATA%\\imsomeeked\\state.json, and every Set
+phone through phones.py. Each phone's last spot is remembered in %APPDATA%\\changemylocation\\state.json, and every Set
 and Reset is logged next to it.
 """
 
@@ -19,15 +19,19 @@ import webview
 
 import phones
 
-APP_DIR = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "imsomeeked"
+APP_DIR = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "changemylocation"
 STATE = APP_DIR / "state.json"
+# The app used to be called imsomeeked; keep its remembered spots and log.
+OLD_APP_DIR = APP_DIR.parent / "imsomeeked"
+if OLD_APP_DIR.is_dir() and not APP_DIR.exists():
+    OLD_APP_DIR.rename(APP_DIR)
 APP_DIR.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(filename=APP_DIR / "imsomeeked.log", level=logging.INFO,
+logging.basicConfig(filename=APP_DIR / "changemylocation.log", level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("imsomeeked")
+logger = logging.getLogger("changemylocation")
 
 # OpenStreetMap's Nominatim asks every app to identify itself.
-USER_AGENT = "imsomeeked/1.0 (+https://github.com/meekwilliam/imsomeeked)"
+USER_AGENT = "changemylocation/1.0 (+https://github.com/meekwilliam/changemylocation)"
 
 
 def web_dir() -> Path:
@@ -129,8 +133,8 @@ class Api:
 
 
 def selftest() -> int:
-    """`imsomeeked --selftest`: checks the build bundled everything (used by CI, where no window can open). The
-    exe has no console, so the result goes to %APPDATA%\\imsomeeked\\selftest.txt."""
+    """`changemylocation --selftest`: checks the build bundled everything (used by CI, where no window can open). The
+    exe has no console, so the result goes to %APPDATA%\\changemylocation\\selftest.txt."""
     try:
         import pymobiledevice3.remote.core_device.location_service  # noqa: F401
         import pymobiledevice3.remote.userspace_tunnel  # noqa: F401
@@ -158,7 +162,7 @@ def main() -> None:
         close_splash()
         sys.exit(selftest())
     # Stay hidden until the page has drawn, so the window doesn't open blank and then fill in.
-    window = webview.create_window("imsomeeked", str(web_dir() / "index.html"), js_api=Api(),
+    window = webview.create_window("changemylocation", str(web_dir() / "index.html"), js_api=Api(),
                                    width=1100, height=760, min_size=(760, 560), hidden=True)
 
     def show() -> None:
