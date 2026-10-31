@@ -19,7 +19,7 @@ jobs:
   version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check the tag matches both apps' version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -34,7 +34,7 @@ jobs:
     needs: version
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Add Rust's Mac targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Build changemylocation.zip
@@ -66,7 +66,7 @@ jobs:
           </rss>
           XML
           cat appcast.xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: changemylocation-mac
           path: |
@@ -81,14 +81,14 @@ jobs:
     needs: [mac, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Checksums
         working-directory: dist
         run: sha256sum changemylocation.zip changemylocation.exe | tee SHA256SUMS.txt
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/changemylocation.zip
