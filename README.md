@@ -41,6 +41,7 @@
 - **iOS 17 and later**, including iOS 18, iOS 26 and iOS 27.
 - **Works over a USB cable or Wi-Fi.**
 - **Works on several iPhones at once.**
+- **Updates itself on the Mac.** New versions install with one click.
 - **macOS and Windows (beta).** Free and open source.
 
 ## How it compares
@@ -65,7 +66,7 @@ changemylocation is tested on iOS 27.
 
 ## Install
 
-**macOS:** [Download `changemylocation.zip`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip), unzip it, and move **changemylocation** to Applications. The app isn't notarized by Apple, so the first time you open it, macOS says it "could not verify" the app. Click **Done**, then go to **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to changemylocation. Or run this in Terminal instead:
+**macOS:** [Download `changemylocation.zip`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip), unzip it, and move **changemylocation** to Applications. The app isn't notarized by Apple, so the first time you open it, macOS will say it "could not verify" the app. Click **Done**, then go to **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to changemylocation. Or run this in Terminal instead:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/changemylocation.app
@@ -79,12 +80,12 @@ xattr -dr com.apple.quarantine /Applications/changemylocation.app
 gh attestation verify changemylocation.zip --repo meekwilliam/changemylocation
 ```
 
-The app tells you when a newer version is out.
+The Mac app updates itself (or use **changemylocation › Check for Updates…**). The Windows app tells you when a newer version is out.
 
 ## Set up your iPhone (once)
 
 1. Plug the iPhone into your computer, unlock it, and tap **Trust**.
-2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart.
+2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart. If the option isn't there, plug the iPhone in with changemylocation open, and the app makes it appear.
 3. Optional, to set locations over Wi-Fi without a cable:
    - **Mac:** in Finder, select the iPhone in the sidebar and check **Show this iPhone when on Wi-Fi**.
    - **Windows:** in Apple Devices, turn on **Show this iPhone when on Wi-Fi**.
@@ -122,8 +123,6 @@ It only changes the location your iPhone reports, and restarting the iPhone undo
 ## How it works
 
 On a Mac, changemylocation's engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)) opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and asks it to simulate the location. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
-
-Many tools instead keep a live developer connection open the whole time. A locked iPhone's Wi-Fi naps, and the computer tears down its connection to a quiet phone. Either one ends a live session and sends the iPhone back to real GPS, which shows up as the location "jumping back". changemylocation has no connection to lose.
 
 ## Build from source
 
