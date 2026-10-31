@@ -5,7 +5,7 @@ The Windows version of imsomeeked works the same way as the Mac app. It hands th
 ## Requirements
 
 - Windows 10 or 11.
-- **Apple Devices** from the Microsoft Store, or iTunes. It provides the iPhone's USB driver.
+- [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, or [iTunes](https://apps.microsoft.com/detail/9pb2mz1zmb1s). It provides the iPhone's USB driver.
 - An iPhone with **Developer Mode** on, running iOS 17 or later.
 - An internet connection the first time you use each iPhone, and after it restarts. imsomeeked downloads Apple's developer tools for the phone, the same files Xcode uses.
 

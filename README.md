@@ -61,7 +61,7 @@
 | | macOS | Windows (beta) |
 |---|---|---|
 | Computer | macOS 26 or later | Windows 10 or 11 |
-| Extra software | None | **Apple Devices** from the Microsoft Store, or iTunes |
+| Extra software | None | [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, or [iTunes](https://apps.microsoft.com/detail/9pb2mz1zmb1s) |
 | iPhone | iOS 17 or later, **Developer Mode** on | iOS 17 or later, **Developer Mode** on |
 
 imsomeeked is tested on iOS 27.
@@ -70,7 +70,7 @@ imsomeeked is tested on iOS 27.
 
 **macOS:** [Download `imsomeeked.zip`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.zip), unzip it, and move **imsomeeked** to Applications. The app isn't notarized by Apple, so the first time, **right-click it and choose Open**, then confirm. You can also run `xattr -dr com.apple.quarantine /Applications/imsomeeked.app`.
 
-**Windows (beta):** [Download `imsomeeked.exe`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
+**Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `imsomeeked.exe`](https://github.com/meekwilliam/imsomeeked/releases/latest/download/imsomeeked.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
 
 ## Set up your iPhone (once)
 
