@@ -1,28 +1,36 @@
 import SwiftUI
 import MapKit
 
-// MARK: - Shell
+// MARK: - Engine
 
-enum Shell {
-    /// Runs a command through a login shell so the user's PATH (pip, Homebrew) is available.
-    static func run(_ command: String) async -> (ok: Bool, output: String) {
-        await withCheckedContinuation { cont in
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            p.arguments = ["-lc", command]
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = pipe
-            p.terminationHandler = { proc in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let out = String(data: data, encoding: .utf8) ?? ""
-                cont.resume(returning: (proc.terminationStatus == 0, out.trimmingCharacters(in: .whitespacesAndNewlines)))
-            }
-            do { try p.run() } catch { cont.resume(returning: (false, error.localizedDescription)) }
-        }
+/// imsomeeked's engine (core/), bundled next to the app's executable as `imsomeeked-cli`. It talks to the iPhone
+/// directly over Apple's device service and developer tunnel, so the app needs neither Xcode nor admin rights.
+enum Engine {
+    static var url: URL {
+        Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("imsomeeked-cli")
     }
 
-    static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+    static var installed: Bool { FileManager.default.isExecutableFile(atPath: url.path) }
+
+    /// Runs the engine and returns whether it succeeded, its output, and its messages (errors and progress).
+    static func run(_ arguments: [String]) async -> (ok: Bool, output: String, messages: String) {
+        await withCheckedContinuation { cont in
+            let p = Process()
+            p.executableURL = url
+            p.arguments = arguments
+            let out = Pipe(), err = Pipe()
+            p.standardOutput = out
+            p.standardError = err
+            p.terminationHandler = { proc in
+                let text = { (pipe: Pipe) in
+                    String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                cont.resume(returning: (proc.terminationStatus == 0, text(out), text(err)))
+            }
+            do { try p.run() } catch { cont.resume(returning: (false, "", error.localizedDescription)) }
+        }
+    }
 }
 
 func lastLine(_ output: String) -> String {
@@ -31,70 +39,56 @@ func lastLine(_ output: String) -> String {
 
 // MARK: - Manager
 
-/// The iPhones Xcode's devicectl can see.
+/// The iPhones the engine can reach, plus any phone still holding a location this app set.
 @MainActor @Observable
 final class Manager {
-    /// False when devicectl can't be run (Xcode missing, or never opened to finish installing).
-    var xcodeReady = true
     var phones: [Phone] = []
     var selectedID: String?
 
     var selectedPhone: Phone? { phones.first { $0.id == selectedID } }
 
     var statusText: String {
-        if !xcodeReady { return "Xcode not found" }
+        if !Engine.installed { return "imsomeeked is damaged; download it again" }
         guard let phone = selectedPhone else { return "No iPhone found" }
         if !phone.connected { return "Not reachable" }
-        return phone.developerMode ? "Connected" : "Developer Mode is off"
+        return phone.overCable ? "Connected by cable" : "Connected on Wi-Fi"
     }
 
     func refresh() async {
-        let out = FileManager.default.temporaryDirectory.appendingPathComponent("imsomeeked-devices.json")
-        defer { try? FileManager.default.removeItem(at: out) }
-        let r = await Shell.run("xcrun devicectl list devices --quiet --json-output \(Shell.quote(out.path))")
-        guard r.ok, let data = try? Data(contentsOf: out),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let devices = (json["result"] as? [String: Any])?["devices"] as? [[String: Any]] else {
-            xcodeReady = false
-            return
-        }
-        xcodeReady = true
+        let r = await Engine.run(["list"])
+        guard r.ok else { return }
         var seen: [String] = []
-        for device in devices {
-            let hardware = device["hardwareProperties"] as? [String: Any] ?? [:]
-            let connection = device["connectionProperties"] as? [String: Any] ?? [:]
-            let properties = device["deviceProperties"] as? [String: Any] ?? [:]
-            // Real, paired iPhones only, not Xcode's simulators.
-            guard hardware["deviceType"] as? String == "iPhone", hardware["reality"] as? String != "simulated",
-                  connection["pairingState"] as? String == "paired", let udid = hardware["udid"] as? String else { continue }
-            seen.append(udid)
-            let name = properties["name"] as? String ?? "iPhone \(udid.suffix(4))"
-            let phone = phones.first { $0.id == udid } ?? {
-                let new = Phone(id: udid, name: name)
+        // One phone per line: udid, name, usb|wifi.
+        for line in r.output.split(separator: "\n") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 3 else { continue }
+            seen.append(fields[0])
+            let phone = phones.first { $0.id == fields[0] } ?? {
+                let new = Phone(id: fields[0], name: fields[1])
                 phones.append(new)
                 return new
             }()
-            phone.name = name
-            // "unavailable" means devicectl can't reach it right now: asleep, off this Wi-Fi, or unplugged.
-            phone.connected = connection["tunnelState"] as? String != "unavailable"
-            // Only reported while reachable; unknown counts as on.
-            phone.developerMode = properties["developerModeStatus"] as? String != "disabled"
+            phone.name = fields[1]
+            phone.connected = true
+            phone.overCable = fields[2] == "usb"
         }
-        phones.removeAll { !seen.contains($0.id) }
+        // A sleeping phone drops out of view for a while; keep its tab while it holds a location from this app.
+        for phone in phones where !seen.contains(phone.id) { phone.connected = false }
+        phones.removeAll { !$0.connected && !$0.holding }
         if selectedPhone == nil { selectedID = phones.first?.id }
     }
 }
 
 // MARK: - Phone
 
-/// One iPhone. Set Location hands the spot to the phone with Xcode's devicectl: the phone's own dtlocationd then
-/// runs the simulation with nothing connected (the Mac can sleep or be closed) until Reset or a restart.
+/// One iPhone. Set Location hands the spot to the phone through the engine: the phone's own dtlocationd then runs
+/// the simulation with nothing connected (the Mac can sleep or be closed) until Reset or a restart.
 @MainActor @Observable
 final class Phone: Identifiable {
     let id: String
     var name: String
     var connected = true
-    var developerMode = true
+    var overCable = false
     /// The spot picked on the map for this phone (not necessarily set yet).
     var selected: Place?
     /// The spot last handed to this phone. Remembered across launches, since the phone keeps it after the app quits.
@@ -126,14 +120,15 @@ final class Phone: Identifiable {
         busy = true
         defer { busy = false }
         note(String(format: "Set Location pressed (%.5f, %.5f)", c.latitude, c.longitude))
-        let r = await Shell.run("xcrun devicectl device simulate location coordinate --device \(Shell.quote(id)) --latitude=\(c.latitude) --longitude=\(c.longitude) --timeout 60")
+        let r = await Engine.run(["set", id, "\(c.latitude)", "\(c.longitude)"])
         if r.ok {
             held = c
+            if !r.messages.isEmpty { note(r.messages) }
             note("location handed to the phone; it holds it with nothing connected")
             show(String(format: "Location set to %.5f, %.5f. The iPhone holds it on its own until Reset or a restart.", c.latitude, c.longitude), error: false)
         } else {
-            note("couldn't set it: \(lastLine(r.output))")
-            show("Couldn't set \(name)'s location: \(lastLine(r.output))", error: true)
+            note("couldn't set it: \(lastLine(r.messages))")
+            show("Couldn't set \(name)'s location: \(lastLine(r.messages))", error: true)
         }
     }
 
@@ -141,16 +136,16 @@ final class Phone: Identifiable {
         busy = true
         defer { busy = false }
         note("Reset pressed")
-        let r = await Shell.run("xcrun devicectl device simulate location clear --device \(Shell.quote(id)) --timeout 60")
+        let r = await Engine.run(["clear", id])
         if r.ok {
             held = nil
             show("Restored real GPS location", error: false)
         } else {
-            show("Couldn't reach \(name) to reset it: \(lastLine(r.output))", error: true)
+            show("Couldn't reset \(name): \(lastLine(r.messages))", error: true)
         }
     }
 
-    /// Records each Set and Reset in ~/Library/Logs/imsomeeked.log.
+/// Records each Set and Reset in ~/Library/Logs/imsomeeked.log.
     func note(_ text: String) {
         let format = DateFormatter()
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -414,11 +409,8 @@ struct ContentView: View {
                          icon: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
                          color: phone.messageIsError ? .orange : .green)
                 }
-                if !manager.xcodeReady {
-                    pill("imsomeeked uses Xcode's devicectl. Install Xcode and open it once.", icon: "hammer", color: .secondary)
-                }
-                if let phone, !phone.developerMode {
-                    pill("Turn on Developer Mode: Settings › Privacy & Security on the iPhone.", icon: "wrench.and.screwdriver", color: .secondary)
+                if !Engine.installed {
+                    pill("The app is missing its engine. Download imsomeeked again.", icon: "exclamationmark.triangle.fill", color: .orange)
                 }
             }
         }
@@ -530,7 +522,7 @@ struct ContentView: View {
     }
 
     private var canControl: Bool {
-        manager.xcodeReady && phone?.connected == true && phone?.developerMode == true
+        Engine.installed && phone?.connected == true
     }
 
     // MARK: Actions

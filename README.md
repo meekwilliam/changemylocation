@@ -45,6 +45,8 @@
 - **Works over a USB cable or Wi-Fi.**
 - **Several iPhones at once**, each in its own tab.
 - **One-click reset** back to your real location. Restarting the iPhone also resets it.
+
+After the iPhone restarts, plug it in and unlock it the first time you set a location, so imsomeeked can load the phone's developer tools. After that, Wi-Fi works again.
 - **Remembers each phone's last spot**, so it's quick to set again after a restart.
 - **macOS and Windows (beta).** Free and open source.
 
@@ -63,7 +65,7 @@
 | | macOS | Windows (beta) |
 |---|---|---|
 | Computer | macOS 26 or later | Windows 10 or 11 |
-| Extra software | **Xcode 26** or later, opened once | **Apple Devices** from the Microsoft Store, or iTunes |
+| Extra software | None | **Apple Devices** from the Microsoft Store, or iTunes |
 | iPhone | iOS 17 or later, **Developer Mode** on | iOS 17 or later, **Developer Mode** on |
 
 imsomeeked is tested on iOS 27.
@@ -77,9 +79,9 @@ imsomeeked is tested on iOS 27.
 ## Set up your iPhone (once)
 
 1. Plug the iPhone into your computer, unlock it, and tap **Trust**.
-2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart. On a Mac, if you don't see the option, open Xcode with the phone plugged in and it will appear.
+2. Turn on **Developer Mode** in **Settings › Privacy & Security › Developer Mode**, then let the phone restart.
 3. Optional, to set locations over Wi-Fi without a cable:
-   - **Mac:** in Xcode, open **Window › Devices and Simulators**, select the phone, and check **Connect via network**.
+   - **Mac:** in Finder, select the iPhone in the sidebar and check **Show this iPhone when on Wi-Fi**.
    - **Windows:** in Apple Devices, turn on **Show this iPhone when on Wi-Fi**.
 
 ## Use
@@ -87,6 +89,8 @@ imsomeeked is tested on iOS 27.
 1. Search for a place, click the map, or paste coordinates. On a Mac you can also right-click the map.
 2. Press **Set Location**. When it says the iPhone holds the location on its own, you can disconnect.
 3. To go back to your real location, press **Reset** (↺). The phone has to be reachable for this, by cable or on the same Wi-Fi. Restarting the iPhone also resets it.
+
+After the iPhone restarts, plug it in and unlock it the first time you set a location, so imsomeeked can load the phone's developer tools. After that, Wi-Fi works again.
 
 ## FAQ
 
@@ -106,20 +110,20 @@ Press **Reset** with the phone reachable, or restart the iPhone.
 Some apps keep the last location they received, so close the app fully and reopen it. A few apps deliberately ignore simulated locations.
 
 **Do I need Xcode?**
-On macOS, yes for now: imsomeeked uses Xcode's `devicectl` tool. The Windows version doesn't need Xcode.
+No. The Mac app talks to the iPhone directly with its own engine, so you don't need Xcode or any other developer software.
 
 **Is it safe?**
 It only changes the location your iPhone reports, and restarting the iPhone undoes it. The code is open source, so you can read exactly what it does.
 
 ## How it works
 
-On a Mac, imsomeeked calls `xcrun devicectl device simulate location coordinate`. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
+On a Mac, imsomeeked's engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)) opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and asks it to simulate the location. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
 
 Many tools instead keep a live developer connection open the whole time. A locked iPhone's Wi-Fi naps, and the computer tears down its connection to a quiet phone. Either one ends a live session and sends the iPhone back to real GPS, which shows up as the location "jumping back". imsomeeked has no connection to lose.
 
 ## Build from source
 
-**macOS**, which needs the Swift toolchain from Xcode 26:
+**macOS**, which needs Swift (Xcode or the Command Line Tools) and [Rust](https://rustup.rs) with both Mac targets (`rustup target add aarch64-apple-darwin x86_64-apple-darwin`):
 
 ```sh
 ./build.sh          # builds imsomeeked.app
