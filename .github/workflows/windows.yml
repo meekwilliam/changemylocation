@@ -24,7 +24,7 @@ jobs:
 
       - name: Build changemylocation.exe
         run: >
-          pyinstaller --noconfirm --onefile --windowed --splash splash.png --name changemylocation
+          pyinstaller --noconfirm --onefile --windowed --splash splash.png --icon icon.ico --name changemylocation
           --add-data "web;web"
           --collect-all pymobiledevice3
           --collect-all developer_disk_image

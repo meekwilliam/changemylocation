@@ -6,6 +6,7 @@
     <key>CFBundleDisplayName</key><string>changemylocation</string>
     <key>CFBundleIdentifier</key><string>com.meekwilliam.changemylocation</string>
     <key>CFBundleExecutable</key><string>changemylocation</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.4</string>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
