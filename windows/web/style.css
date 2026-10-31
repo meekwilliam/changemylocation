@@ -85,3 +85,14 @@ body {
   background: var(--line); color: var(--text);
 }
 button:disabled { opacity: 0.45; cursor: default; }
+
+#menu {
+  position: fixed; z-index: 2000; min-width: 200px; padding: 5px; border-radius: 12px;
+  background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(12px);
+}
+#menu button {
+  display: block; width: 100%; border: 0; border-radius: 7px; padding: 7px 12px; text-align: left;
+  background: none; color: var(--text); font: inherit; cursor: pointer;
+}
+#menu button:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
+#menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 6px; }

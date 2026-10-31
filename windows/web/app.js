@@ -1,6 +1,8 @@
 // The window's page: map, phone tabs, search, Set/Reset. Phone work happens in Python via window.pywebview.api.
 
 const $ = (id) => document.getElementById(id);
+// Leaflet guesses its image folder from the stylesheet, which can miss inside the app window.
+L.Icon.Default.imagePath = "vendor/leaflet/images/";
 const map = L.map("map", { zoomControl: false }).setView([37.3349, -122.009], 13);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -12,12 +14,14 @@ let phones = [];
 let selectedId = null;
 let busy = false;
 let phonesError = "";
-// The spot picked on the map for each phone (not necessarily set yet).
+// The spot picked on the map for each phone (not necessarily set yet). DRAFT holds it while no phone is connected.
 const picked = {};
+const DRAFT = "";
 const marker = L.marker([0, 0]);
 
 const api = () => window.pywebview.api;
 const phone = () => phones.find((p) => p.udid === selectedId);
+const key = () => phone()?.udid ?? DRAFT;
 
 function showMessage(text, ok) {
   const m = $("message");
@@ -42,7 +46,7 @@ function render() {
     ? phonesError
     : p ? `${p.name} · ${p.connection === "USB" ? "Connected by cable" : "Connected on Wi-Fi"}` : "No iPhone found. Plug one in and tap Trust.";
 
-  const spot = p && picked[p.udid];
+  const spot = picked[key()];
   $("place-name").textContent = spot ? spot.name : "No location selected";
   $("place-sub").textContent = spot ? spot.subtitle || "" : "Click the map or search above.";
   $("place-coord").textContent = spot ? `${spot.lat.toFixed(6)}, ${spot.lon.toFixed(6)}` : "";
@@ -62,14 +66,13 @@ function select(udid) {
 }
 
 async function pick(lat, lon, name, subtitle) {
-  const p = phone();
-  if (!p) return;
+  const k = key();
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
-  picked[p.udid] = spot;
+  picked[k] = spot;
   render();
-  if (!name) {
+  if (!name && window.pywebview) {
     const d = await api().describe(lat, lon);
-    if (picked[p.udid] === spot) {
+    if (picked[k] === spot) {
       Object.assign(spot, d);
       render();
     }
@@ -89,11 +92,63 @@ async function refresh() {
       if (p.last && !picked[p.udid]) picked[p.udid] = { lat: p.last.lat, lon: p.last.lon, name: p.last.name || "Last location set", subtitle: "Last location set" };
     }
     if (!phone()) selectedId = phones[0]?.udid ?? null;
+    // A spot picked before any phone showed up goes to the first one that does.
+    const p = phone();
+    if (p && picked[DRAFT] && !picked[p.udid]) picked[p.udid] = picked[DRAFT];
+    if (p) delete picked[DRAFT];
   }
   render();
 }
 
-map.on("click", (e) => pick(e.latlng.lat, e.latlng.lng));
+map.on("click", (e) => { hideMenu(); pick(e.latlng.lat, e.latlng.lng); });
+
+// Right-click menu, the same as the Mac app's.
+const menu = $("menu");
+let menuAt = null;
+
+function hideMenu() { menu.hidden = true; }
+
+map.on("contextmenu", (e) => {
+  e.originalEvent.preventDefault();
+  menuAt = e.latlng;
+  const noPhone = busy || !phone();
+  menu.querySelector('[data-action="set"]').disabled = noPhone;
+  menu.querySelector('[data-action="reset"]').disabled = noPhone;
+  menu.hidden = false;
+  // Open at the pointer, flipped if it would run off the window.
+  const { clientX: x, clientY: y } = e.originalEvent;
+  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + "px";
+  menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + "px";
+});
+map.on("movestart zoomstart", hideMenu);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideMenu(); });
+document.addEventListener("mousedown", (e) => { if (!menu.contains(e.target)) hideMenu(); });
+document.addEventListener("contextmenu", (e) => { if (!e.target.closest("#map")) return; e.preventDefault(); });
+
+menu.onclick = async (e) => {
+  const action = e.target.closest("button")?.dataset.action;
+  if (!action || !menuAt) return;
+  hideMenu();
+  const { lat, lng } = menuAt;
+  if (action === "set") { pick(lat, lng); await setLocation(); }
+  if (action === "pin") pick(lat, lng);
+  if (action === "copy") copy(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+  if (action === "reset") await resetLocation();
+};
+
+function copy(text) {
+  // The async clipboard API isn't always allowed in the app window; fall back to the old way.
+  navigator.clipboard?.writeText(text).catch(fallback) ?? fallback();
+  function fallback() {
+    const t = document.createElement("textarea");
+    t.value = text;
+    document.body.appendChild(t);
+    t.select();
+    document.execCommand("copy");
+    t.remove();
+  }
+  showMessage("Copied " + text, true);
+}
 
 $("search").onsubmit = async (e) => {
   e.preventDefault();
@@ -124,25 +179,28 @@ $("search").onsubmit = async (e) => {
   list.hidden = results.length === 0;
 };
 
-$("set").onclick = async () => {
+async function setLocation() {
   const p = phone(), spot = p && picked[p.udid];
-  if (!spot) return;
+  if (!spot || busy) return;
   busy = true; render();
   const r = await api().set(p.udid, spot.lat, spot.lon, spot.name);
   busy = false;
   showMessage(r.message, r.ok);
   await refresh();
-};
+}
 
-$("reset").onclick = async () => {
+async function resetLocation() {
   const p = phone();
-  if (!p) return;
+  if (!p || busy) return;
   busy = true; render();
   const r = await api().clear(p.udid);
   busy = false;
   showMessage(r.message, r.ok);
   await refresh();
-};
+}
+
+$("set").onclick = setLocation;
+$("reset").onclick = resetLocation;
 
 window.addEventListener("pywebviewready", () => {
   refresh();
