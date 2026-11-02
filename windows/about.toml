@@ -1,4 +1,4 @@
-# Licenses cargo-about accepts when listing the packages compiled into changemylocation.exe.
+# licenses cargo-about accepts when listing the packages compiled into changemylocation.exe
 accepted = [
     "MIT",
     "Apache-2.0",

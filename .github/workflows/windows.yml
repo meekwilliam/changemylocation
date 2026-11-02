@@ -1,7 +1,7 @@
 name: Windows build
 
-# changemylocation.exe for Windows: the Tauri app in windows/ on the same Rust engine (core/) as the Mac app.
-# No Python and no GPL code; the iPhone driver still comes from Apple Devices.
+# changemylocation.exe for windows, the tauri app in windows/ on the same rust engine in core/ as the mac app
+# no python and no gpl code, the iphone driver still comes from apple devices
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
         with:
           tool: cargo-about
 
-      # Every compiled-in package's license, plus Leaflet (the map), which ships inside the exe's page.
+      # every compiled-in package's license, plus leaflet for the map, which ships inside the exe's page
       - name: Collect third-party licenses
         run: |
           cargo about generate about.hbs -o target/release/THIRD_PARTY_LICENSES.txt
