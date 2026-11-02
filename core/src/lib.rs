@@ -20,6 +20,9 @@ use idevice::{
 };
 
 const LABEL: &str = "changemylocation";
+
+/// idevice's small HTTP client, for apps built on the engine (place search, update checks).
+pub use idevice::http;
 const FEATURE: &str = "com.apple.coredevice.feature.simulatelocation";
 const SET: &str = "com.apple.coredevice.action.setsimulatedlocation";
 const CLEAR: &str = "com.apple.coredevice.action.clearsimulatedlocation";
@@ -250,6 +253,12 @@ async fn developer_disk_image() -> Result<[Vec<u8>; 3]> {
         files.push(bytes);
     }
     Ok(files.try_into().expect("three files"))
+}
+
+/// Where changemylocation keeps its files: %APPDATA%\changemylocation on Windows,
+/// ~/Library/Application Support/changemylocation on a Mac.
+pub fn app_dir() -> PathBuf {
+    cache_dir()
 }
 
 fn cache_dir() -> PathBuf {

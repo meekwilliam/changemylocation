@@ -8,3 +8,5 @@ windows/build/
 windows/dist/
 windows/*.spec
 core/target/
+windows-app/target/
+windows-app/gen/

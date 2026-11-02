@@ -1,0 +1,30 @@
+[package]
+name = "changemylocation-windows"
+version = "2.0.0"
+edition = "2024"
+license = "MIT"
+description = "changemylocation for Windows: the map window, on the same Rust engine as the Mac app"
+repository = "https://github.com/meekwilliam/changemylocation"
+
+[[bin]]
+name = "changemylocation"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[dependencies]
+changemylocation-core = { path = "../core" }
+# custom-protocol serves web/ from inside the exe instead of a dev server.
+tauri = { version = "=2.12.4", features = ["custom-protocol"] }
+tokio = { version = "1.54", features = ["time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = "2.2"
+base64 = "0.22"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

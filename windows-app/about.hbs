@@ -1,0 +1,10 @@
+changemylocation for Windows is MIT licensed (https://github.com/meekwilliam/changemylocation).
+It is built from these open-source packages, listed by license.
+{{#each licenses}}
+
+================================================================================
+{{name}}
+Used by:{{#each used_by}} {{crate.name}} {{crate.version}}{{#unless @last}},{{/unless}}{{/each}}
+--------------------------------------------------------------------------------
+{{text}}
+{{/each}}
