@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>changemylocation</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<div id="top">
+  <div id="tabs"></div>
+  <form id="search">
+    <input id="query" type="search" placeholder="Search an address, place, or &quot;lat, lon&quot;" autocomplete="off">
+    <ul id="results" hidden></ul>
+  </form>
+</div>
+
+<div id="panel">
+  <button id="update" class="pill" hidden></button>
+  <div id="status" class="pill"><span id="status-text">Looking for iPhones…</span></div>
+  <div id="card">
+    <div id="place">
+      <div id="place-name">No location selected</div>
+      <div id="place-sub">Click the map or search above.</div>
+      <div id="place-coord"></div>
+    </div>
+    <div id="buttons">
+      <button id="set" disabled>Set Location</button>
+      <button id="reset" title="Reset to the real location" disabled>↺</button>
+    </div>
+  </div>
+  <div id="message" class="pill" hidden></div>
+  <div id="devmode" class="pill" hidden>Turn on Developer Mode on the iPhone: Settings › Privacy &amp; Security › Developer Mode, then let it restart.</div>
+</div>
+
+<div id="menu" hidden>
+  <button data-action="set">Set Location Here</button>
+  <button data-action="pin">Drop Pin Here</button>
+  <button data-action="copy">Copy Coordinates</button>
+  <hr>
+  <button data-action="reset">Reset to Real GPS</button>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="bridge.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "changemylocation",
+  "version": "2.0.0",
+  "identifier": "com.meekwilliam.changemylocation.windows",
+  "build": { "frontendDist": "web" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      { "title": "changemylocation", "width": 1100, "height": 760, "minWidth": 760, "minHeight": 560 }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.png", "icons/icon.ico"] }
+}
