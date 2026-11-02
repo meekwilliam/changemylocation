@@ -3,8 +3,8 @@ It is built from these open-source packages, listed by license.
 {{#each licenses}}
 
 ================================================================================
-{{name}}
+{{{name}}}
 Used by:{{#each used_by}} {{crate.name}} {{crate.version}}{{#unless @last}},{{/unless}}{{/each}}
 --------------------------------------------------------------------------------
-{{text}}
+{{{text}}}
 {{/each}}
