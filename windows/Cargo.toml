@@ -15,7 +15,7 @@ tauri-build = { version = "=2.7.3", features = [] }
 
 [dependencies]
 changemylocation-core = { path = "../core" }
-# custom-protocol serves web/ from inside the exe instead of a dev server.
+# custom-protocol serves web/ from inside the exe instead of a dev server
 tauri = { version = "=2.12.4", features = ["custom-protocol"] }
 tokio = { version = "1.54", features = ["time"] }
 serde = { version = "1", features = ["derive"] }

@@ -1,4 +1,4 @@
-// Connects the page to the app's Rust commands (src/main.rs), which call the same engine as the Mac app.
+// connects the page to the app's rust commands in src/main.rs, which call the same engine as the mac app
 const { invoke } = window.__TAURI__.core;
 
 window.bridge = {

@@ -1,10 +1,10 @@
 name: Release
 
-# Pushing a tag like v1.7.0 (versions are 1.x.x) builds both apps here on GitHub, so every download can be traced to this repo's code:
-# each file gets a SHA-256 checksum and a signed build provenance record (check one with
-# `gh attestation verify <file> --repo meekwilliam/changemylocation`). The Mac zip is also signed with the
-# project's Sparkle key (repo secret SPARKLE_PRIVATE_KEY) and listed in appcast.xml, the feed the Mac app checks
-# for updates; it only sees a release once the draft is published. The release is left as a draft to review.
+# pushing a tag like v1.7.0, versions are 1.x.x, builds both apps here on github so every download can be traced to this repo's code,
+# each file gets a sha-256 checksum and a signed build provenance record, check one with
+# `gh attestation verify <file> --repo meekwilliam/changemylocation`, the mac zip is also signed with the
+# project's sparkle key from the repo secret SPARKLE_PRIVATE_KEY and listed in appcast.xml, the feed the mac app checks
+# for updates, it only sees a release once the draft is published, the release is left as a draft to review
 
 on:
   push:
@@ -80,7 +80,7 @@ jobs:
 
   publish:
     needs: [mac, windows]
-    # macOS, for Sparkle's sign_update, which signs the Windows exe for its built-in updater.
+    # macos for sparkle's sign_update, which signs the windows exe for its built-in updater
     runs-on: macos-26
     steps:
       - uses: actions/download-artifact@v8

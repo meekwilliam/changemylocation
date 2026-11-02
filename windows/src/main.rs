@@ -1,14 +1,14 @@
-// No console window behind the app in release builds.
+// no console window behind the app in release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! changemylocation for Windows: the map page in web/ plus these commands, which call the same engine as the Mac
-//! app (core/). Each phone's last spot is remembered in %APPDATA%\changemylocation\state.json, the same file the
-//! older Python version used, and every Set and Reset is logged next to it.
+//! changemylocation for windows, the map page in web/ plus these commands, which call the same engine as the mac
+//! app in core/, each phone's last spot is remembered in %APPDATA%\changemylocation\state.json, the same file the
+//! older python version used, and every set and reset is logged next to it
 
-use std::{fs, io::Write, path::PathBuf, time::Duration};
+use std::{fs, io::Write, path::PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use changemylocation_core::{self as engine, Link, http::HttpRequest};
+use changemylocation_core::{self as engine, Link, http::HttpRequest, short_udid as short, within_a_minute};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -16,8 +16,8 @@ const USER_AGENT: &str =
     concat!("changemylocation/", env!("CARGO_PKG_VERSION"), " (+https://github.com/meekwilliam/changemylocation)");
 const LATEST_RELEASE: &str = "https://api.github.com/repos/meekwilliam/changemylocation/releases/latest";
 const LATEST_DOWNLOAD: &str = "https://github.com/meekwilliam/changemylocation/releases/latest/download/";
-/// The project's update signing key, the same one the Mac app's updater trusts. Releases sign
-/// changemylocation.exe with its private half (changemylocation.exe.sig).
+/// the project's update signing key, the same one the mac app's updater trusts, releases sign
+/// changemylocation.exe with its private half into changemylocation.exe.sig
 const UPDATE_KEY: &str = "Hps3V99anq2uSo3nTXfp7jnGl9MjrfoIMb7nK9LyILc=";
 
 #[derive(Serialize)]
@@ -62,16 +62,16 @@ async fn set(udid: String, lat: f64, lon: f64, name: Option<String>) -> Reply {
     log(&format!("[{}] Set Location pressed ({lat:.5}, {lon:.5})", short(&udid)));
     match within_a_minute(engine::set_location(&udid, lat, lon)).await {
         Ok(()) => {
-            let mut state = load_state();
-            state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default() }));
-            save_state(&state);
+            edit_state(|state| {
+                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default() }));
+            });
             let message =
                 format!("Location set to {lat:.5}, {lon:.5}. The iPhone holds it on its own until Reset or a restart.");
             Reply { ok: true, message }
         }
         Err(e) => {
             log(&format!("[{}] set failed: {e}", short(&udid)));
-            Reply { ok: false, message: e }
+            Reply { ok: false, message: e.to_string() }
         }
     }
 }
@@ -81,9 +81,9 @@ async fn clear(udid: String) -> Reply {
     log(&format!("[{}] Reset pressed", short(&udid)));
     match within_a_minute(engine::clear_location(&udid)).await {
         Ok(()) => {
-            let mut state = load_state();
-            state.remove(&udid);
-            save_state(&state);
+            edit_state(|state| {
+                state.remove(&udid);
+            });
             Reply { ok: true, message: "Restored the real location.".into() }
         }
         Err(e) => {
@@ -101,7 +101,7 @@ async fn reveal_developer_mode(udid: String) {
     }
 }
 
-/// Place search, through OpenStreetMap's Nominatim.
+/// place search through openstreetmap's nominatim
 #[tauri::command]
 async fn search(query: String) -> Value {
     let url = format!("https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=6", encode(&query));
@@ -124,7 +124,7 @@ async fn search(query: String) -> Value {
     json!(places)
 }
 
-/// The name of the place at a spot clicked on the map.
+/// the name of the place at a spot clicked on the map
 #[tauri::command]
 async fn describe(lat: f64, lon: f64) -> Value {
     let url = format!("https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=jsonv2&zoom=18");
@@ -135,7 +135,7 @@ async fn describe(lat: f64, lon: f64) -> Value {
     })
 }
 
-/// A newer release on GitHub, if there is one.
+/// a newer release on github, if there is one
 #[tauri::command]
 async fn update() -> Option<Update> {
     let release = get_json(LATEST_RELEASE).await?;
@@ -144,8 +144,8 @@ async fn update() -> Option<Update> {
     newer(&latest, env!("CARGO_PKG_VERSION")).then_some(Update { version: latest, url })
 }
 
-/// Downloads the latest changemylocation.exe, checks it's signed with the project's key, swaps it in for this
-/// one and restarts. Windows lets a running exe be renamed, so the old one moves aside and is deleted next launch.
+/// downloads the latest changemylocation.exe, checks it's signed with the project's key, swaps it in for this
+/// one and restarts, windows lets a running exe be renamed so the old one moves aside and is deleted next launch
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     if !cfg!(windows) {
@@ -157,8 +157,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     let current = std::env::current_exe().map_err(|e| e.to_string())?;
     let fresh = current.with_extension("new");
     fs::write(&fresh, &exe).map_err(|e| format!("Couldn't save the update: {e}"))?;
-    let _ = fs::remove_file(current.with_extension("old"));
-    fs::rename(&current, current.with_extension("old")).map_err(|e| format!("Couldn't replace the app: {e}"))?;
+    let old = current.with_extension("old");
+    let _ = fs::remove_file(&old);
+    fs::rename(&current, &old).map_err(|e| format!("Couldn't replace the app: {e}"))?;
     fs::rename(&fresh, &current).map_err(|e| format!("Couldn't replace the app: {e}"))?;
     log("installed an update; restarting");
     std::process::Command::new(&current).spawn().map_err(|e| e.to_string())?;
@@ -166,16 +167,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens a changemylocation page on GitHub in the browser.
+/// opens a changemylocation page on github in the browser
 #[tauri::command]
 fn open_page(url: String) {
     if !url.starts_with("https://github.com/meekwilliam/changemylocation/") {
         return;
     }
-    #[cfg(windows)]
-    let _ = std::process::Command::new("explorer").arg(&url).spawn();
-    #[cfg(not(windows))]
-    let _ = std::process::Command::new("open").arg(&url).spawn();
+    let opener = if cfg!(windows) { "explorer" } else { "open" };
+    let _ = std::process::Command::new(opener).arg(&url).spawn();
 }
 
 fn verify(data: &[u8], signature: &[u8]) -> Result<(), String> {
@@ -187,8 +186,12 @@ fn verify(data: &[u8], signature: &[u8]) -> Result<(), String> {
     key.verify_strict(data, &signature).map_err(|_| refuse())
 }
 
+fn request(url: &str) -> HttpRequest {
+    HttpRequest::get(url).header("User-Agent", USER_AGENT)
+}
+
 async fn get_json(url: &str) -> Option<Value> {
-    let response = HttpRequest::get(url).header("User-Agent", USER_AGENT).send().await.ok()?;
+    let response = request(url).send().await.ok()?;
     if response.status != 200 {
         return None;
     }
@@ -196,26 +199,14 @@ async fn get_json(url: &str) -> Option<Value> {
 }
 
 async fn download(url: &str) -> Result<Vec<u8>, String> {
-    let response = HttpRequest::get(url)
-        .header("User-Agent", USER_AGENT)
-        .send()
-        .await
-        .map_err(|e| format!("Couldn't download the update: {e}"))?;
+    let response = request(url).send().await.map_err(|e| format!("Couldn't download the update: {e}"))?;
     if response.status != 200 {
         return Err(format!("Couldn't download the update (HTTP {}).", response.status));
     }
     Ok(response.body)
 }
 
-/// A slow or sleeping phone can leave a connection hanging; give up after a minute.
-async fn within_a_minute(action: impl Future<Output = engine::Result<()>>) -> Result<(), String> {
-    match tokio::time::timeout(Duration::from_secs(60), action).await {
-        Ok(result) => result.map_err(|e| e.to_string()),
-        Err(_) => Err("The iPhone stopped answering. Unlock it, or plug it in.".into()),
-    }
-}
-
-/// Compares version numbers like 1.10 and 1.9 by their parts.
+/// compares version numbers like 1.10 and 1.9 by their parts
 fn newer(a: &str, b: &str) -> bool {
     let parts = |v: &str| v.split('.').map(|p| p.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
     let (mut x, mut y) = (parts(a), parts(b));
@@ -225,7 +216,7 @@ fn newer(a: &str, b: &str) -> bool {
     x > y
 }
 
-/// Percent-encodes a search query for a URL.
+/// percent-encodes a search query for a url
 fn encode(text: &str) -> String {
     text.bytes()
         .map(|b| match b {
@@ -233,10 +224,6 @@ fn encode(text: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
-}
-
-fn short(udid: &str) -> &str {
-    &udid[udid.len().saturating_sub(4)..]
 }
 
 fn state_path() -> PathBuf {
@@ -247,9 +234,11 @@ fn load_state() -> Map<String, Value> {
     fs::read(state_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-fn save_state(state: &Map<String, Value>) {
+fn edit_state(change: impl FnOnce(&mut Map<String, Value>)) {
+    let mut state = load_state();
+    change(&mut state);
     let _ = fs::create_dir_all(engine::app_dir());
-    let _ = fs::write(state_path(), serde_json::to_vec_pretty(state).unwrap_or_default());
+    let _ = fs::write(state_path(), serde_json::to_vec_pretty(&state).unwrap_or_default());
 }
 
 fn log(line: &str) {
@@ -261,7 +250,7 @@ fn log(line: &str) {
 }
 
 fn main() {
-    // An update leaves the previous exe beside this one; it isn't running any more.
+    // an update leaves the previous exe beside this one, it isn't running any more
     if let Ok(exe) = std::env::current_exe() {
         let _ = fs::remove_file(exe.with_extension("old"));
     }

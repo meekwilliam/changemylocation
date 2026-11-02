@@ -2,10 +2,10 @@ import SwiftUI
 import MapKit
 import Sparkle
 
-// MARK: - Engine
+// MARK: - engine
 
-/// changemylocation's engine (core/), bundled next to the app's executable as `changemylocation-cli`. It talks to the iPhone
-/// directly over Apple's device service and developer tunnel, so the app needs neither Xcode nor admin rights.
+/// changemylocation's engine from core/, bundled next to the app's executable as `changemylocation-cli`, talks to the iphone
+/// directly over apple's device service and developer tunnel, so the app needs neither xcode nor admin rights
 enum Engine {
     static var url: URL {
         Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("changemylocation-cli")
@@ -13,7 +13,7 @@ enum Engine {
 
     static var installed: Bool { FileManager.default.isExecutableFile(atPath: url.path) }
 
-    /// Runs the engine and returns whether it succeeded, its output, and its messages (errors and progress).
+    /// runs the engine, returns whether it worked, its output and its messages, errors and progress
     static func run(_ arguments: [String]) async -> (ok: Bool, output: String, messages: String) {
         await withCheckedContinuation { cont in
             let p = Process()
@@ -38,9 +38,15 @@ func lastLine(_ output: String) -> String {
     output.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? "Unknown error"
 }
 
-// MARK: - Manager
+extension CLLocationCoordinate2D {
+    func text(_ decimals: Int) -> String {
+        String(format: "%.\(decimals)f, %.\(decimals)f", latitude, longitude)
+    }
+}
 
-/// The iPhones the engine can reach, plus any phone still holding a location this app set.
+// MARK: - manager
+
+/// the iphones the engine can reach, plus any phone still holding a location this app set
 @MainActor @Observable
 final class Manager {
     var phones: [Phone] = []
@@ -59,7 +65,7 @@ final class Manager {
         let r = await Engine.run(["list"])
         guard r.ok else { return }
         var seen: [String] = []
-        // One phone per line: udid, name, usb|wifi, then Developer Mode (on, off or unknown).
+        // one phone per line, udid, name, usb|wifi, then developer mode as on, off or unknown
         for line in r.output.split(separator: "\n") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 3 else { continue }
@@ -74,34 +80,34 @@ final class Manager {
             phone.overCable = fields[2] == "usb"
             phone.developerMode = fields.count > 3 ? ["on": true, "off": false][fields[3]] : nil
             if phone.developerMode == false && !phone.revealedDeveloperMode {
-                // iOS hides the Developer Mode switch until a developer tool connects; show it once per launch.
+                // ios hides the developer mode switch until a developer tool connects, show it once per launch
                 phone.revealedDeveloperMode = true
                 Task { _ = await Engine.run(["reveal-developer-mode", phone.id]) }
             }
         }
-        // A sleeping phone drops out of view for a while; keep its tab while it holds a location from this app.
+        // a sleeping phone drops out of view for a while, keep its tab while it holds a location from this app
         for phone in phones where !seen.contains(phone.id) { phone.connected = false }
         phones.removeAll { !$0.connected && !$0.holding }
         if selectedPhone == nil { selectedID = phones.first?.id }
     }
 }
 
-// MARK: - Phone
+// MARK: - phone
 
-/// One iPhone. Set Location hands the spot to the phone through the engine: the phone's own dtlocationd then runs
-/// the simulation with nothing connected (the Mac can sleep or be closed) until Reset or a restart.
+/// one iphone, set location hands the spot to the phone through the engine, the phone's own dtlocationd then runs
+/// the simulation with nothing connected, the mac can sleep or be closed, until reset or a restart
 @MainActor @Observable
 final class Phone: Identifiable {
     let id: String
     var name: String
     var connected = true
     var overCable = false
-    /// Whether Developer Mode is on, when the phone says.
+    /// whether developer mode is on, when the phone says
     var developerMode: Bool?
     var revealedDeveloperMode = false
-    /// The spot picked on the map for this phone (not necessarily set yet).
+    /// the spot picked on the map for this phone, not necessarily set yet
     var selected: Place?
-    /// The spot last handed to this phone. Remembered across launches, since the phone keeps it after the app quits.
+    /// the spot last handed to this phone, remembered across launches since the phone keeps it after the app quits
     var held: CLLocationCoordinate2D? {
         didSet {
             if let held { UserDefaults.standard.set([held.latitude, held.longitude], forKey: heldKey) }
@@ -121,7 +127,7 @@ final class Phone: Identifiable {
         if let saved = UserDefaults.standard.array(forKey: heldKey) as? [Double], saved.count == 2 {
             let c = CLLocationCoordinate2D(latitude: saved[0], longitude: saved[1])
             held = c
-            // A restart clears the phone's simulation, so keep the last spot ready to set again in one click.
+            // a restart clears the phone's simulation, so keep the last spot ready to set again in one click
             selected = Place(name: "Last location set", subtitle: "", coordinate: c)
         }
     }
@@ -129,13 +135,13 @@ final class Phone: Identifiable {
     func set(_ c: CLLocationCoordinate2D) async {
         busy = true
         defer { busy = false }
-        note(String(format: "Set Location pressed (%.5f, %.5f)", c.latitude, c.longitude))
+        note("Set Location pressed (\(c.text(5)))")
         let r = await Engine.run(["set", id, "\(c.latitude)", "\(c.longitude)"])
         if r.ok {
             held = c
             if !r.messages.isEmpty { note(r.messages) }
             note("location handed to the phone; it holds it with nothing connected")
-            show(String(format: "Location set to %.5f, %.5f. The iPhone holds it on its own until Reset or a restart.", c.latitude, c.longitude), error: false)
+            show("Location set to \(c.text(5)). The iPhone holds it on its own until Reset or a restart.", error: false)
         } else {
             note("couldn't set it: \(lastLine(r.messages))")
             show("Couldn't set \(name)'s location: \(lastLine(r.messages))", error: true)
@@ -155,11 +161,15 @@ final class Phone: Identifiable {
         }
     }
 
-/// Records each Set and Reset in ~/Library/Logs/changemylocation.log.
-    func note(_ text: String) {
+    private static let timestamp: DateFormatter = {
         let format = DateFormatter()
         format.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let line = "\(format.string(from: Date())) [\(id.suffix(4))] app: \(text)\n"
+        return format
+    }()
+
+    /// records each set and reset in ~/Library/Logs/changemylocation.log
+    func note(_ text: String) {
+        let line = "\(Self.timestamp.string(from: Date())) [\(id.suffix(4))] app: \(text)\n"
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/changemylocation.log")
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile()
@@ -176,7 +186,7 @@ final class Phone: Identifiable {
     }
 }
 
-// MARK: - Search
+// MARK: - search
 
 struct Place: Identifiable, Equatable {
     let id = UUID()
@@ -197,7 +207,7 @@ func describe(_ item: MKMapItem) -> String {
     item.address?.fullAddress.replacingOccurrences(of: "\n", with: ", ") ?? ""
 }
 
-// MARK: - Views
+// MARK: - views
 
 struct ContentView: View {
     @State private var manager = Manager()
@@ -206,10 +216,10 @@ struct ContentView: View {
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)))
     @State private var query = ""
     @State private var results: [Place] = []
-    /// The picked spot when no phone is connected yet.
+    /// the picked spot when no phone is connected yet
     @State private var draft: Place?
     @State private var searching = false
-    /// Last pointer position over the map, used as the right-click spot.
+    /// last pointer position over the map, used as the right-click spot
     @State private var pointer: CGPoint?
     @FocusState private var searchFocused: Bool
 
@@ -235,7 +245,7 @@ struct ContentView: View {
                 .onTapGesture { point in
                     if let c = proxy.convert(point, from: .local) { pick(c) }
                 }
-                // SwiftUI's context menu doesn't report where it was opened, so track the pointer instead.
+                // swiftui's context menu doesn't report where it was opened, so track the pointer instead
                 .onContinuousHover { phase in
                     if case .active(let point) = phase { pointer = point }
                 }
@@ -243,11 +253,11 @@ struct ContentView: View {
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
                         pick(c)
-                        if let phone { Task { await phone.set(c) } }
+                        setLocation(c)
                     } label: {
                         Label("Set Location Here", systemImage: "location.fill")
                     }
-                    .disabled(!canControl || phone?.busy == true)
+                    .disabled(!canAct)
 
                     Button {
                         if let c = pointerCoordinate(proxy) { pick(c) }
@@ -258,19 +268,17 @@ struct ContentView: View {
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(String(format: "%.6f, %.6f", c.latitude, c.longitude), forType: .string)
+                        NSPasteboard.general.setString(c.text(6), forType: .string)
                     } label: {
                         Label("Copy Coordinates", systemImage: "doc.on.doc")
                     }
 
                     Divider()
 
-                    Button {
-                        if let phone { Task { await phone.clear() } }
-                    } label: {
+                    Button(action: reset) {
                         Label("Reset to Real GPS", systemImage: "arrow.counterclockwise")
                     }
-                    .disabled(!canControl || phone?.busy == true)
+                    .disabled(!canAct)
                 }
             }
             .ignoresSafeArea()
@@ -285,7 +293,7 @@ struct ContentView: View {
         }
         .task {
             await manager.refresh()
-            // Keep the connection status current while the app is open.
+            // keep the connection status current while the app is open
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(4))
                 await manager.refresh()
@@ -297,7 +305,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Tabs
+    // MARK: tabs
 
     private var tabBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -318,7 +326,7 @@ struct ContentView: View {
                 .padding(.vertical, 2)
             }
         }
-        // Leave room for the window's traffic-light buttons.
+        // leave room for the window's traffic-light buttons
         .padding(.leading, 60)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -348,7 +356,7 @@ struct ContentView: View {
         .glassEffect(isSelected ? .regular.tint(.blue).interactive() : .regular.interactive(), in: .capsule)
     }
 
-    // MARK: Search
+    // MARK: search
 
     private var searchArea: some View {
         GlassEffectContainer(spacing: 10) {
@@ -406,7 +414,7 @@ struct ContentView: View {
         .animation(.spring(duration: 0.3), value: results)
     }
 
-    // MARK: Bottom panel
+    // MARK: bottom panel
 
     private var bottomPanel: some View {
         GlassEffectContainer(spacing: 14) {
@@ -471,7 +479,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
-                        Text(String(format: "%.6f, %.6f", current.coordinate.latitude, current.coordinate.longitude))
+                        Text(current.coordinate.text(6))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
@@ -486,7 +494,7 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    if let phone, let c = current?.coordinate { Task { await phone.set(c) } }
+                    if let c = current?.coordinate { setLocation(c) }
                 } label: {
                     HStack(spacing: 8) {
                         if phone?.busy == true {
@@ -504,11 +512,9 @@ struct ContentView: View {
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
                 .tint(.blue)
-                .disabled(current == nil || !canControl || phone?.busy == true)
+                .disabled(current == nil || !canAct)
 
-                Button {
-                    if let phone { Task { await phone.clear() } }
-                } label: {
+                Button(action: reset) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 16, weight: .semibold))
                         .frame(width: 30, height: 30)
@@ -517,7 +523,7 @@ struct ContentView: View {
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
                 .help("Reset to real GPS")
-                .disabled(!canControl || phone?.busy == true)
+                .disabled(!canAct)
             }
         }
         .padding(18)
@@ -535,11 +541,19 @@ struct ContentView: View {
             .transition(.blurReplace)
     }
 
-    private var canControl: Bool {
-        Engine.installed && phone?.connected == true
+    private var canAct: Bool {
+        Engine.installed && phone?.connected == true && phone?.busy != true
     }
 
-    // MARK: Actions
+    // MARK: actions
+
+    private func setLocation(_ c: CLLocationCoordinate2D) {
+        if let phone { Task { await phone.set(c) } }
+    }
+
+    private func reset() {
+        if let phone { Task { await phone.clear() } }
+    }
 
     private func pointerCoordinate(_ proxy: MapProxy) -> CLLocationCoordinate2D? {
         pointer.flatMap { proxy.convert($0, from: .local) }
@@ -581,7 +595,7 @@ struct ContentView: View {
         fly(to: place.coordinate)
     }
 
-    /// Selects a raw coordinate and fills in its address in the background.
+    /// selects a raw coordinate and fills in its address in the background
     private func pick(_ c: CLLocationCoordinate2D) {
         let place = Place(name: "Dropped Pin", subtitle: "", coordinate: c)
         setCurrent(place)
@@ -594,11 +608,11 @@ struct ContentView: View {
     }
 }
 
-// MARK: - App
+// MARK: - app
 
 @main
 struct ChangeMyLocationApp: App {
-    /// Sparkle: checks the release feed in the background and installs signed updates in place.
+    /// sparkle, checks the release feed in the background and installs signed updates in place
     private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     init() {
@@ -606,7 +620,7 @@ struct ChangeMyLocationApp: App {
         Self.keepLocationsFromOldName()
     }
 
-    /// The app used to be called imsomeeked; bring over the spots each phone was holding under that name.
+    /// the app used to be called imsomeeked, bring over the spots each phone was holding under that name
     private static func keepLocationsFromOldName() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: "movedFromImsomeeked"),
@@ -621,7 +635,7 @@ struct ChangeMyLocationApp: App {
         WindowGroup("changemylocation") {
             ContentView()
                 .frame(minWidth: 760, minHeight: 600)
-                // Look for an update each time the app opens (Sparkle alone waits a day), then hourly while it runs.
+                // look for an update each time the app opens since sparkle alone waits a day, then hourly while it runs
                 .task { updater.updater.checkForUpdatesInBackground() }
         }
         .windowStyle(.hiddenTitleBar)

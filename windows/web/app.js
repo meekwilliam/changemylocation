@@ -1,7 +1,7 @@
-// The window's page: map, phone tabs, search, Set/Reset. Phone work happens in the app via window.bridge (bridge.js).
+// the window's page, map, phone tabs, search, set and reset, phone work happens in the app through window.bridge in bridge.js
 
 const $ = (id) => document.getElementById(id);
-// Leaflet guesses its image folder from the stylesheet, which can miss inside the app window.
+// leaflet guesses its image folder from the stylesheet, which can miss inside the app window
 L.Icon.Default.imagePath = "vendor/leaflet/images/";
 const map = L.map("map", { zoomControl: false }).setView([37.3349, -122.009], 13);
 L.control.zoom({ position: "bottomright" }).addTo(map);
@@ -14,9 +14,9 @@ let phones = [];
 let selectedId = null;
 let busy = false;
 let phonesError = "";
-// Phones whose hidden Developer Mode switch was already revealed this launch.
+// phones whose hidden developer mode switch was already revealed this launch
 const revealed = new Set();
-// The spot picked on the map for each phone (not necessarily set yet). DRAFT holds it while no phone is connected.
+// the spot picked on the map for each phone, not necessarily set yet, DRAFT holds it while no phone is connected
 const picked = {};
 const DRAFT = "";
 const marker = L.marker([0, 0]);
@@ -68,6 +68,13 @@ function select(udid) {
   render();
 }
 
+// fly to a spot from search and pick it
+function goTo(lat, lon, name, subtitle) {
+  $("results").hidden = true;
+  map.flyTo([lat, lon], 15);
+  return pick(lat, lon, name, subtitle);
+}
+
 async function pick(lat, lon, name, subtitle) {
   const k = key();
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
@@ -91,16 +98,16 @@ async function refresh() {
     phonesError = "";
     phones = found;
     for (const p of phones) {
-      // A remembered spot is ready to set again in one click (e.g. after the iPhone restarted).
+      // a remembered spot is ready to set again in one click, like after the iphone restarted
       if (p.last && !picked[p.udid]) picked[p.udid] = { lat: p.last.lat, lon: p.last.lon, name: p.last.name || "Last location set", subtitle: "Last location set" };
     }
     if (!phone()) selectedId = phones[0]?.udid ?? null;
-    // A spot picked before any phone showed up goes to the first one that does.
+    // a spot picked before any phone showed up goes to the first one that does
     const p = phone();
     if (p && picked[DRAFT] && !picked[p.udid]) picked[p.udid] = picked[DRAFT];
     if (p) delete picked[DRAFT];
     for (const ph of phones) {
-      // iOS hides the Developer Mode switch until a developer tool connects; show it once per launch.
+      // ios hides the developer mode switch until a developer tool connects, show it once per launch
       if (ph.developerMode === false && !revealed.has(ph.udid)) {
         revealed.add(ph.udid);
         api().reveal_developer_mode(ph.udid);
@@ -112,7 +119,7 @@ async function refresh() {
 
 map.on("click", (e) => { hideMenu(); pick(e.latlng.lat, e.latlng.lng); });
 
-// Right-click menu, the same as the Mac app's.
+// right-click menu, the same as the mac app's
 const menu = $("menu");
 let menuAt = null;
 
@@ -122,10 +129,9 @@ map.on("contextmenu", (e) => {
   e.originalEvent.preventDefault();
   menuAt = e.latlng;
   const noPhone = busy || !phone();
-  menu.querySelector('[data-action="set"]').disabled = noPhone;
-  menu.querySelector('[data-action="reset"]').disabled = noPhone;
+  for (const action of ["set", "reset"]) menu.querySelector(`[data-action="${action}"]`).disabled = noPhone;
   menu.hidden = false;
-  // Open at the pointer, flipped if it would run off the window.
+  // open at the pointer, flipped if it would run off the window
   const { clientX: x, clientY: y } = e.originalEvent;
   menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + "px";
   menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + "px";
@@ -147,7 +153,7 @@ menu.onclick = async (e) => {
 };
 
 function copy(text) {
-  // The async clipboard API isn't always allowed in the app window; fall back to the old way.
+  // the async clipboard api isn't always allowed in the app window, fall back to the old way
   navigator.clipboard?.writeText(text).catch(fallback) ?? fallback();
   function fallback() {
     const t = document.createElement("textarea");
@@ -166,12 +172,7 @@ $("search").onsubmit = async (e) => {
   const list = $("results");
   if (!q) return;
   const coord = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (coord) {
-    list.hidden = true;
-    const [lat, lon] = [parseFloat(coord[1]), parseFloat(coord[2])];
-    map.flyTo([lat, lon], 15);
-    return pick(lat, lon);
-  }
+  if (coord) return goTo(parseFloat(coord[1]), parseFloat(coord[2]));
   const results = await api().search(q);
   list.innerHTML = "";
   for (const r of results) {
@@ -179,34 +180,30 @@ $("search").onsubmit = async (e) => {
     li.innerHTML = `<div></div><div class="sub"></div>`;
     li.children[0].textContent = r.name;
     li.children[1].textContent = r.subtitle;
-    li.onclick = () => {
-      list.hidden = true;
-      map.flyTo([r.lat, r.lon], 15);
-      pick(r.lat, r.lon, r.name, r.subtitle);
-    };
+    li.onclick = () => goTo(r.lat, r.lon, r.name, r.subtitle);
     list.appendChild(li);
   }
   list.hidden = results.length === 0;
 };
 
-async function setLocation() {
-  const p = phone(), spot = p && picked[p.udid];
-  if (!spot || busy) return;
+// one set or reset at a time, then show how it went
+async function act(call) {
+  if (busy) return;
   busy = true; render();
-  const r = await api().set(p.udid, spot.lat, spot.lon, spot.name);
+  const r = await call();
   busy = false;
   showMessage(r.message, r.ok);
   await refresh();
 }
 
+async function setLocation() {
+  const p = phone(), spot = p && picked[p.udid];
+  if (spot) await act(() => api().set(p.udid, spot.lat, spot.lon, spot.name));
+}
+
 async function resetLocation() {
   const p = phone();
-  if (!p || busy) return;
-  busy = true; render();
-  const r = await api().clear(p.udid);
-  busy = false;
-  showMessage(r.message, r.ok);
-  await refresh();
+  if (p) await act(() => api().clear(p.udid));
 }
 
 $("set").onclick = setLocation;
@@ -223,7 +220,7 @@ async function checkForUpdate() {
     try {
       await api().install_update();
     } catch (e) {
-      // Couldn't install it here (not writable, signature didn't match, offline): fall back to the download page.
+      // couldn't install it here, not writable, signature didn't match or offline, fall back to the download page
       showMessage(String(e), false);
       b.textContent = `changemylocation ${u.version} is out. Click to download.`;
       b.disabled = false;
