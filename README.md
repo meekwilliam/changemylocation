@@ -72,7 +72,7 @@ changemylocation is tested on iOS 27.
 xattr -dr com.apple.quarantine /Applications/changemylocation.app
 ```
 
-**Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `changemylocation.exe`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**. See the [Windows setup](windows#readme).
+**Windows (beta):** First install [**Apple Devices**](https://apps.microsoft.com/detail/9np83lwlpz9k) from the Microsoft Store, which gives Windows the iPhone driver. Then [download `changemylocation.exe`](https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe) and run it. SmartScreen may warn that it's unrecognized, because it isn't code-signed. Choose **More info › Run anyway**.
 
 **Check a download (optional):** every release is built by GitHub Actions from this repo's code, so you can confirm a file came from here. Each release lists SHA-256 checksums in `SHA256SUMS.txt`, and with the [GitHub CLI](https://cli.github.com) you can check the signed build record:
 
@@ -80,7 +80,7 @@ xattr -dr com.apple.quarantine /Applications/changemylocation.app
 gh attestation verify changemylocation.zip --repo meekwilliam/changemylocation
 ```
 
-The Mac app updates itself (or use **changemylocation › Check for Updates…**). The Windows app tells you when a newer version is out.
+Both apps update themselves. On a Mac you can also use **changemylocation › Check for Updates…**; on Windows, click the banner when a new version is out.
 
 ## Set up your iPhone (once)
 
@@ -122,7 +122,7 @@ It only changes the location your iPhone reports, and restarting the iPhone undo
 
 ## How it works
 
-On a Mac, changemylocation's engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)) opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and asks it to simulate the location. On Windows, it calls the same Apple service through [pymobiledevice3](https://github.com/doronz88/pymobiledevice3). Either way, the location is handed to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`), and the phone then runs the simulation itself.
+The Mac and Windows apps share one engine ([`core/`](core), Rust, built on [idevice](https://github.com/jkcoxson/idevice)). It opens Apple's developer tunnel to the iPhone, loads the phone's developer tools if a restart unloaded them, and hands the location to the iPhone's own location-simulation service (`com.apple.coredevice.locationservice`). The phone then runs the simulation itself.
 
 ## Build from source
 
@@ -133,7 +133,7 @@ On a Mac, changemylocation's engine ([`core/`](core), Rust, built on [idevice](h
 ./build.sh --zip    # also makes changemylocation.zip for a release
 ```
 
-**Windows:** see [`windows/`](windows#readme). The `.exe` is built by GitHub Actions ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)).
+**Windows:** the app is in [`windows/`](windows) ([Tauri](https://tauri.app)). With [Rust](https://rustup.rs) installed, run `cargo build --release` in that folder. Release builds come from GitHub Actions ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)).
 
 ## Contributing
 
@@ -147,9 +147,10 @@ changemylocation is an independent project and isn't affiliated with or endorsed
 
 ## Acknowledgements
 
-- [pymobiledevice3](https://github.com/doronz88/pymobiledevice3), for talking to iPhones on Windows.
+- [idevice](https://github.com/jkcoxson/idevice), for talking to iPhones.
+- [Tauri](https://tauri.app), for the Windows app, and [Sparkle](https://sparkle-project.org), for Mac updates.
 - [Leaflet](https://leafletjs.com) and [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, for the Windows map and search.
 
 ## License
 
-changemylocation's source code is [MIT licensed](LICENSE). The Windows `.exe` bundles pymobiledevice3 and other GPL-3.0 libraries, so the Windows build as a whole is distributed under the [GPL-3.0](windows/COPYING.GPL-3.0.txt). Its full third-party license list ships with each release.
+changemylocation is [MIT licensed](LICENSE). `THIRD_PARTY_LICENSES.txt`, attached to each release, lists the open-source packages built into the Windows app.
