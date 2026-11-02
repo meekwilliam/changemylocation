@@ -450,8 +450,7 @@ struct ContentView: View {
                 .lineLimit(1)
         }
         .font(.system(size: 13, weight: .medium, design: .rounded))
-        .padding(.leading, 16)
-        .padding(.trailing, 6)
+        .padding(.horizontal, 16)
         .frame(minHeight: 42)
         .glassEffect(.regular, in: .capsule)
     }
