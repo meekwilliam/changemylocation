@@ -26,9 +26,10 @@ jobs:
           plist() { grep "<key>$1</key>" Info.plist | sed -E 's/.*<string>([^<]+)<\/string>.*/\1/'; }
           mac=$(plist CFBundleShortVersionString)
           build=$(plist CFBundleVersion)
-          win=$(grep -E '^VERSION = ' windows/changemylocation.py | sed -E 's/VERSION = "([^"]+)".*/\1/')
-          echo "tag $tag, Mac $mac (build $build), Windows $win"
-          [ "$tag" = "$mac" ] && [ "$tag" = "$build" ] && [ "$tag" = "$win" ]
+          win=$(grep -m1 -E '^version = ' windows/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          tauri=$(grep -m1 '"version"' windows/tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          echo "tag $tag, Mac $mac (build $build), Windows $win (window $tauri)"
+          [ "$tag" = "$mac" ] && [ "$tag" = "$build" ] && [ "$tag" = "$win" ] && [ "$tag" = "$tauri" ]
 
   mac:
     needs: version
@@ -79,15 +80,25 @@ jobs:
 
   publish:
     needs: [mac, windows]
-    runs-on: ubuntu-latest
+    # macOS, for Sparkle's sign_update, which signs the Windows exe for its built-in updater.
+    runs-on: macos-26
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+      - name: Sign the Windows update
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "Add the SPARKLE_PRIVATE_KEY repo secret"; exit 1; }
+          curl -fsSL -o sparkle.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz
+          mkdir sparkle && tar -xf sparkle.tar.xz -C sparkle
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | sparkle/bin/sign_update --ed-key-file - -p dist/changemylocation.exe > dist/changemylocation.exe.sig
+          test -s dist/changemylocation.exe.sig
       - name: Checksums
         working-directory: dist
-        run: sha256sum changemylocation.zip changemylocation.exe | tee SHA256SUMS.txt
+        run: shasum -a 256 changemylocation.zip changemylocation.exe | tee SHA256SUMS.txt
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
@@ -99,5 +110,5 @@ jobs:
         run: >
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft
           --title "changemylocation ${GITHUB_REF_NAME#v}" --notes "Release notes to come."
-          dist/changemylocation.zip dist/appcast.xml dist/changemylocation.exe dist/SHA256SUMS.txt
-          dist/THIRD_PARTY_LICENSES.txt dist/COPYING.GPL-3.0.txt
+          dist/changemylocation.zip dist/appcast.xml dist/changemylocation.exe dist/changemylocation.exe.sig
+          dist/SHA256SUMS.txt dist/THIRD_PARTY_LICENSES.txt

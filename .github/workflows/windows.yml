@@ -1,9 +1,12 @@
 name: Windows build
 
+# changemylocation.exe for Windows: the Tauri app in windows/ on the same Rust engine (core/) as the Mac app.
+# No Python and no GPL code; the iPhone driver still comes from Apple Devices.
+
 on:
   push:
     branches: [main]
-    paths: ["windows/**", ".github/workflows/windows.yml"]
+    paths: ["windows/**", "core/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
   workflow_call:  # from release.yml
 
@@ -13,53 +16,32 @@ jobs:
     defaults:
       run:
         working-directory: windows
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller==6.22.3
+      - name: Update Rust
+        run: rustup update stable && rustup default stable
 
       - name: Build changemylocation.exe
-        run: >
-          pyinstaller --noconfirm --onefile --windowed --splash splash.png --icon icon.ico --name changemylocation
-          --add-data "web;web"
-          --collect-all pymobiledevice3
-          --collect-all developer_disk_image
-          --collect-all pmd_pytcp
-          --collect-all pytun_pmd3
-          --collect-all ipsw_parser
-          --collect-all pyimg4
-          --recursive-copy-metadata pymobiledevice3
-          changemylocation.py
+        run: cargo build --release
 
-      - name: Self-test the build
-        shell: pwsh
-        run: |
-          # The exe has no console, so it writes its result to selftest.txt (printed below).
-          $p = Start-Process -FilePath dist\changemylocation.exe -ArgumentList "--selftest" -NoNewWindow -PassThru `
-            -RedirectStandardOutput selftest.out -RedirectStandardError selftest.err
-          $null = $p.Handle  # needed for ExitCode to be filled in
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "Self-test timed out"; Get-Content selftest.out, selftest.err; exit 1 }
-          Get-Content selftest.out, selftest.err
-          Get-Content "$env:APPDATA\changemylocation\selftest.txt" -ErrorAction SilentlyContinue
-          if ($p.ExitCode -ne 0) { exit 1 }
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
 
-      # The .exe bundles GPL-3.0 libraries (pymobiledevice3 and friends), so ship the GPL text and every bundled
-      # package's license next to it.
+      # Every compiled-in package's license, plus Leaflet (the map), which ships inside the exe's page.
       - name: Collect third-party licenses
         run: |
-          pip install pip-licenses==5.5.5
-          pip-licenses --with-urls --with-license-file --no-license-path --format=plain-vertical --output-file dist/THIRD_PARTY_LICENSES.txt
-          copy COPYING.GPL-3.0.txt dist\
+          cargo about generate about.hbs -o target/release/THIRD_PARTY_LICENSES.txt
+          { echo; echo "================================================================================"; \
+            echo "Leaflet (BSD-2-Clause), the map in the app window"; \
+            echo "--------------------------------------------------------------------------------"; \
+            cat web/vendor/leaflet/LICENSE; } >> target/release/THIRD_PARTY_LICENSES.txt
 
       - uses: actions/upload-artifact@v7
         with:
           name: changemylocation-windows
           path: |
-            windows/dist/changemylocation.exe
-            windows/dist/THIRD_PARTY_LICENSES.txt
-            windows/dist/COPYING.GPL-3.0.txt
+            windows/target/release/changemylocation.exe
+            windows/target/release/THIRD_PARTY_LICENSES.txt

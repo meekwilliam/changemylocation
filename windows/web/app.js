@@ -1,4 +1,4 @@
-// The window's page: map, phone tabs, search, Set/Reset. Phone work happens in Python via window.pywebview.api.
+// The window's page: map, phone tabs, search, Set/Reset. Phone work happens in the app via window.bridge (bridge.js).
 
 const $ = (id) => document.getElementById(id);
 // Leaflet guesses its image folder from the stylesheet, which can miss inside the app window.
@@ -21,7 +21,7 @@ const picked = {};
 const DRAFT = "";
 const marker = L.marker([0, 0]);
 
-const api = () => window.pywebview.api;
+const api = () => window.bridge;
 const phone = () => phones.find((p) => p.udid === selectedId);
 const key = () => phone()?.udid ?? DRAFT;
 
@@ -73,7 +73,7 @@ async function pick(lat, lon, name, subtitle) {
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
   picked[k] = spot;
   render();
-  if (!name && window.pywebview) {
+  if (!name) {
     const d = await api().describe(lat, lon);
     if (picked[k] === spot) {
       Object.assign(spot, d);
@@ -216,13 +216,23 @@ async function checkForUpdate() {
   const u = await api().update();
   if (!u) return;
   const b = $("update");
-  b.textContent = `changemylocation ${u.version} is out. Click to download.`;
-  b.onclick = () => api().open(u.url);
+  b.textContent = `changemylocation ${u.version} is out. Click to update.`;
+  b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = `Updating to ${u.version}… The app restarts when it's done.`;
+    try {
+      await api().install_update();
+    } catch (e) {
+      // Couldn't install it here (not writable, signature didn't match, offline): fall back to the download page.
+      showMessage(String(e), false);
+      b.textContent = `changemylocation ${u.version} is out. Click to download.`;
+      b.disabled = false;
+      b.onclick = () => api().open(u.url);
+    }
+  };
   b.hidden = false;
 }
 
-window.addEventListener("pywebviewready", () => {
-  checkForUpdate();
-  refresh();
-  setInterval(() => { if (!busy) refresh(); }, 5000);
-});
+checkForUpdate();
+refresh();
+setInterval(() => { if (!busy) refresh(); }, 5000);
