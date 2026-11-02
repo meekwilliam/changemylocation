@@ -1,15 +1,35 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "changemylocation",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "identifier": "com.meekwilliam.changemylocation.windows",
-  "build": { "frontendDist": "web" },
+  "build": {
+    "frontendDist": "web"
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
-      { "title": "changemylocation", "width": 1100, "height": 760, "minWidth": 760, "minHeight": 560 }
+      {
+        "title": "changemylocation",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560
+      }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
-  "bundle": { "active": false, "icon": ["icons/icon.png", "icons/icon.ico"] }
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "William Meek",
+    "copyright": "Copyright © 2026 William Meek. MIT License.",
+    "shortDescription": "iPhone location simulator",
+    "longDescription": "Sets a simulated GPS location on your own iPhone, which the iPhone then holds on its own."
+  }
 }
