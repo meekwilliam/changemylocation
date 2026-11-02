@@ -15,6 +15,7 @@
     <key>SUFeedURL</key><string>https://github.com/meekwilliam/changemylocation/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key><string>Hps3V99anq2uSo3nTXfp7jnGl9MjrfoIMb7nK9LyILc=</string>
     <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>3600</integer>
     <key>SUAllowsAutomaticUpdates</key><true/>
 </dict>
 </plist>

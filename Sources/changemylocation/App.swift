@@ -621,6 +621,8 @@ struct ChangeMyLocationApp: App {
         WindowGroup("changemylocation") {
             ContentView()
                 .frame(minWidth: 760, minHeight: 600)
+                // Look for an update each time the app opens (Sparkle alone waits a day), then hourly while it runs.
+                .task { updater.updater.checkForUpdatesInBackground() }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 780)
