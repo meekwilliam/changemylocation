@@ -3,10 +3,6 @@
 *.zip
 .DS_Store
 .swiftpm/
-__pycache__/
-windows/build/
-windows/dist/
-windows/*.spec
 core/target/
-windows-app/target/
-windows-app/gen/
+windows/target/
+windows/gen/
