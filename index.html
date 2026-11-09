@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>changemylocation: free iPhone location changer for Mac and Windows</title>
+<meta name="description" content="Change your iPhone's GPS location instantly from a Mac or Windows PC. Free and open source, no jailbreak, nothing to install on the phone, and the iPhone keeps the location after you unplug it. Works with iOS 17, 18, 26 and 27.">
+<link rel="canonical" href="https://meekwilliam.github.io/changemylocation/">
+<link rel="icon" href="icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="changemylocation: free iPhone location changer">
+<meta property="og:description" content="Change your iPhone's location instantly from a Mac or Windows PC. Free, no jailbreak, nothing to install on the phone.">
+<meta property="og:url" content="https://meekwilliam.github.io/changemylocation/">
+<meta property="og:image" content="https://meekwilliam.github.io/changemylocation/icon.png">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "changemylocation",
+  "description": "Free, open-source app that changes an iPhone's GPS location from a Mac or Windows PC, with no jailbreak.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS 26, Windows 10, Windows 11",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "downloadUrl": "https://github.com/meekwilliam/changemylocation/releases/latest",
+  "url": "https://meekwilliam.github.io/changemylocation/",
+  "license": "https://opensource.org/licenses/MIT"
+}
+</script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #5f6368; --card: #f5f5f7; --line: #e3e3e8;
+    --accent: #1f6feb; --accent-fg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9da7b3; --card: #161b22; --line: #2b313a; --accent: #2f81f7; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 0 16px 64px; }
+  header { text-align: center; padding: 56px 0 24px; }
+  header img.icon { width: 96px; height: 96px; border-radius: 22px; }
+  h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.15; margin: 16px 0 12px; letter-spacing: -0.02em; }
+  .lead { font-size: 20px; color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+  .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 13px 22px; border-radius: 10px; background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .small { font-size: 14px; color: var(--muted); margin-top: 14px; }
+  .demo { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); margin: 32px 0 8px; }
+  h2 { font-size: 28px; margin: 56px 0 16px; letter-spacing: -0.01em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border-radius: 12px; padding: 18px 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 16px; }
+  ol li { margin-bottom: 8px; }
+  details { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 10px 0 0; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .table-wrap { overflow-x: auto; }
+  a { color: var(--accent); }
+  footer { text-align: center; color: var(--muted); font-size: 14px; padding: 32px 16px 48px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="icon" src="icon.png" alt="changemylocation app icon" width="96" height="96">
+    <h1>Change your iPhone's location instantly</h1>
+    <p class="lead">changemylocation sets a GPS location on your iPhone from a Mac or Windows PC. It's free, no jailbreak needed, and the iPhone keeps the location after you unplug it.</p>
+    <div class="buttons">
+      <a class="btn" href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip">Download for Mac</a>
+      <a class="btn" href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe">Download for Windows (beta)</a>
+      <a class="btn ghost" href="https://github.com/meekwilliam/changemylocation">View on GitHub</a>
+    </div>
+  </header>
+
+  <img class="demo" src="demo.gif" alt="Right-clicking San José airport in changemylocation on a Mac and choosing Set Location Here, and the iPhone's Maps app jumping there" width="960" height="515">
+
+  <h2>Features</h2>
+  <div class="grid">
+    <div class="card"><h3>Anywhere in the world</h3><p>Search an address or place, click the map, or paste coordinates.</p></div>
+    <div class="card"><h3>Stays set after you unplug</h3><p>The iPhone runs the location itself, so you can unplug it, lock it, and take it off Wi-Fi.</p></div>
+    <div class="card"><h3>No jailbreak</h3><p>Nothing to install on the iPhone. It uses Apple's own developer location feature.</p></div>
+    <div class="card"><h3>Cable or Wi-Fi</h3><p>Set the location over a USB cable or on the same Wi-Fi network, on several iPhones at once.</p></div>
+    <div class="card"><h3>Mac and Windows</h3><p>A Mac app and a Windows app (beta) that both update themselves.</p></div>
+    <div class="card"><h3>Free and open source</h3><p>MIT licensed, so you can read exactly what it does.</p></div>
+  </div>
+
+  <h2>How to change your iPhone's location</h2>
+  <ol>
+    <li>Download changemylocation for <a href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.zip">Mac</a> or <a href="https://github.com/meekwilliam/changemylocation/releases/latest/download/changemylocation.exe">Windows</a>. On Windows, install <a href="https://apps.microsoft.com/detail/9np83lwlpz9k">Apple Devices</a> from the Microsoft Store first.</li>
+    <li>Plug in your iPhone, unlock it and tap <b>Trust</b>. Turn on <b>Developer Mode</b> in <b>Settings › Privacy &amp; Security</b>. If it isn't there, keep the iPhone plugged in with changemylocation open and the app makes it appear.</li>
+    <li>Search for a place or click the map, then press <b>Set Location</b>. Press <b>Reset</b>, or restart the iPhone, to get your real location back.</li>
+  </ol>
+  <p>Full install steps are in the <a href="https://github.com/meekwilliam/changemylocation#install">README on GitHub</a>.</p>
+
+  <h2>Requirements</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th></th><th>Mac</th><th>Windows (beta)</th></tr>
+      <tr><td>Computer</td><td>macOS 26 or later</td><td>Windows 10 or 11</td></tr>
+      <tr><td>Extra software</td><td>None</td><td>Apple Devices from the Microsoft Store, or iTunes</td></tr>
+      <tr><td>iPhone</td><td>iOS 17 or later, Developer Mode on</td><td>iOS 17 or later, Developer Mode on</td></tr>
+    </table>
+  </div>
+
+  <h2>FAQ</h2>
+  <details><summary>Do I need to jailbreak my iPhone?</summary><p>No. changemylocation uses Apple's developer location simulation, the same feature Xcode uses.</p></details>
+  <details><summary>Does the iPhone have to stay connected to the computer?</summary><p>No. Once the location is set, the iPhone holds it by itself. In testing it held for over 9 hours with the Mac asleep and the iPhone locked on battery.</p></details>
+  <details><summary>Which iOS versions work?</summary><p>iOS 17 and later, including iOS 18, 26 and 27.</p></details>
+  <details><summary>How do I get my real location back?</summary><p>Press Reset with the iPhone connected by cable or on the same Wi-Fi, or restart the iPhone.</p></details>
+  <details><summary>Why does an app still show the old location?</summary><p>Some apps keep the last location they received, so close the app fully and reopen it. A few apps deliberately ignore simulated locations.</p></details>
+  <details><summary>Do I need Xcode?</summary><p>No. changemylocation talks to the iPhone directly, so you don't need Xcode or any other developer software.</p></details>
+  <details><summary>Is it free?</summary><p>Yes, completely free and open source under the MIT license, with no ads, accounts or subscriptions.</p></details>
+
+  <h2>Responsible use</h2>
+  <p>changemylocation is meant for developing and testing apps on devices you own. Respect the terms of the apps and services you use, many of which forbid location spoofing, and don't use it to mislead people who rely on your location.</p>
+</main>
+<footer>
+  <a href="https://github.com/meekwilliam/changemylocation">changemylocation on GitHub</a> · MIT licensed<br>
+  An independent project, not affiliated with or endorsed by Apple. Apple and iPhone are trademarks of Apple Inc.
+</footer>
+</body>
+</html>
