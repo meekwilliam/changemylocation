@@ -79,10 +79,17 @@ final class Manager {
             phone.connected = true
             phone.overCable = fields[2] == "usb"
             phone.developerMode = fields.count > 3 ? ["on": true, "off": false][fields[3]] : nil
-            if phone.developerMode == false && !phone.revealedDeveloperMode {
-                // ios hides the developer mode switch until a developer tool connects, show it once per launch
-                phone.revealedDeveloperMode = true
-                Task { _ = await Engine.run(["reveal-developer-mode", phone.id]) }
+            if phone.developerMode == false && !phone.revealedDeveloperMode && !phone.revealing {
+                // ios hides the developer mode switch until a developer tool connects, keep trying until the phone takes it, a locked phone refuses
+                phone.revealing = true
+                Task {
+                    let r = await Engine.run(["reveal-developer-mode", phone.id])
+                    phone.revealing = false
+                    if r.ok {
+                        phone.revealedDeveloperMode = true
+                        phone.note("showed the developer mode switch")
+                    }
+                }
             }
         }
         // a sleeping phone drops out of view for a while, keep its tab while it holds a location from this app
@@ -105,6 +112,7 @@ final class Phone: Identifiable {
     /// whether developer mode is on, when the phone says
     var developerMode: Bool?
     var revealedDeveloperMode = false
+    var revealing = false
     /// the spot picked on the map for this phone, not necessarily set yet
     var selected: Place?
     /// the spot last handed to this phone, remembered across launches since the phone keeps it after the app quits
@@ -428,7 +436,7 @@ struct ContentView: View {
                          color: phone.messageIsError ? .orange : .green)
                 }
                 if phone?.developerMode == false {
-                    pill("Turn on Developer Mode on the iPhone: Settings › Privacy & Security › Developer Mode, then let it restart.",
+                    pill("Turn on Developer Mode on the iPhone: Settings › Privacy & Security › Developer Mode. Not there? Unlock the iPhone, then close Settings and open it again.",
                          icon: "wrench.and.screwdriver.fill", color: .orange)
                 }
                 if !Engine.installed {
@@ -533,7 +541,7 @@ struct ContentView: View {
         Label(text, systemImage: icon)
             .font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(color)
-            .lineLimit(2)
+            .lineLimit(3)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .glassEffect(.regular, in: .capsule)

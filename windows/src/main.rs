@@ -94,11 +94,12 @@ async fn clear(udid: String) -> Reply {
 }
 
 #[tauri::command]
-async fn reveal_developer_mode(udid: String) {
-    match within_a_minute(engine::reveal_developer_mode(&udid)).await {
-        Ok(()) => log(&format!("[{}] revealed the Developer Mode switch", short(&udid))),
-        Err(e) => log(&format!("[{}] couldn't reveal the Developer Mode switch: {e}", short(&udid))),
+async fn reveal_developer_mode(udid: String) -> bool {
+    let shown = within_a_minute(engine::reveal_developer_mode(&udid)).await.is_ok();
+    if shown {
+        log(&format!("[{}] revealed the Developer Mode switch", short(&udid)));
     }
+    shown
 }
 
 /// place search through openstreetmap's nominatim
