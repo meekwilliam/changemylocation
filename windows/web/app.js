@@ -76,13 +76,13 @@ function metres(a, b) {
 
 // where this pc is, the app can't read an iphone's real gps, but one plugged in or on the same wi-fi is nearby, so
 // its dot goes here when it isn't using a simulated location
-let here = null;
-navigator.geolocation?.watchPosition((at) => { here = [at.coords.latitude, at.coords.longitude]; }, () => {}, { maximumAge: 60000 });
+let pcSpot = null;
+navigator.geolocation?.watchPosition((at) => { pcSpot = [at.coords.latitude, at.coords.longitude]; }, () => {}, { maximumAge: 60000 });
 
 // where a phone is pretending to be right now, it moves along its trip at a steady speed and stops at the end
 function position(p) {
   const last = p.last;
-  if (!last) return here;
+  if (!last) return pcSpot;
   const trip = last.trip;
   if (!trip || !trip.points?.length) return [last.lat, last.lon];
   let left = Math.max(0, Date.now() - trip.start) / 1000 * trip.speed;
@@ -145,7 +145,6 @@ function render() {
   $("place-sub").textContent = spot ? spot.subtitle || "" : "Click the map or search above.";
   $("place-coord").textContent = spot ? `${spot.lat.toFixed(6)}, ${spot.lon.toFixed(6)}` : "";
   const wandering = mode === "wander";
-  $("wander-note").hidden = !(wandering && spot);
   $("badge-icon").setAttribute("href", wandering ? "#i-wander" : p?.last ? "#i-arrow" : "#i-pin");
   $("set-icon").setAttribute("href", wandering ? "#i-wander" : "#i-arrow");
   $("set").disabled = busy || !p || !spot;
@@ -435,7 +434,7 @@ async function resetLocation() {
   const p = phone();
   if (!p) return;
   await act(() => api().clear(p.udid));
-  if (!phone()?.last && here) map.flyTo(here, 16);
+  if (!phone()?.last && pcSpot) map.flyTo(pcSpot, 16);
 }
 
 $("set").onclick = () => (mode === "wander" ? wanderAround() : setLocation());

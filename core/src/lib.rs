@@ -129,7 +129,7 @@ pub async fn set_location(udid: &str, latitude: f64, longitude: f64) -> Result<(
 /// hands the phone a route to travel at `speed` metres a second, the phone moves along it on its own and stays at
 /// the last point when it gets there, until reset or a restart
 pub async fn play_route(udid: &str, waypoints: &[(f64, f64)], speed: f64) -> Result<()> {
-    if waypoints.len() < 2 || !(speed > 0.0) {
+    if waypoints.len() < 2 || speed.is_nan() || speed <= 0.0 {
         return Err(Error::Other("A route needs a start, an end and a speed.".into()));
     }
     let provider = provider(udid).await?;

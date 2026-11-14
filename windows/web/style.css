@@ -163,7 +163,6 @@ button:disabled { opacity: 0.4; cursor: default; }
 #place-name { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #place-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
 #place-coord { color: var(--faint); font: 11px ui-monospace, "Cascadia Mono", Consolas, monospace; margin-top: 4px; user-select: text; }
-#wander-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
 .buttons { display: flex; gap: 10px; margin-top: 18px; }
 .primary {

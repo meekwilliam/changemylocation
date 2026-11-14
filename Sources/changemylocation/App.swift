@@ -802,12 +802,6 @@ struct ContentView: View {
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
-                        if mode == .wander {
-                            Text("Walks slowly around this spot, within about \(Int(wanderRadius)) m, for hours.")
-                                .font(.system(size: 12, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 2)
-                        }
                     } else {
                         Text("Click the map or search above.")
                             .font(.system(size: 13, design: .rounded))
