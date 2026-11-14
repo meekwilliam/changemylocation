@@ -416,7 +416,8 @@ struct ContentView: View {
                     } else {
                         ForEach(manager.phones) { p in
                             if let place = p.selected, !p.isResting(at: place.coordinate) {
-                                Marker(p.name, systemImage: "mappin", coordinate: place.coordinate)
+                                // named after the place, only the phone's own dot carries its name
+                                Marker(place.name, systemImage: "mappin", coordinate: place.coordinate)
                                     .tint(p.id == manager.selectedID ? .blue : .gray)
                             }
                         }
