@@ -670,7 +670,7 @@ struct ContentView: View {
         GlassEffectContainer(spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 statusPill
-                if mode == .spot { locationCard } else { routeCard }
+                card
 
                 if phone?.developerMode == false {
                     pill("Turn on Developer Mode on the iPhone: Settings › Privacy & Security › Developer Mode. Not there? Unlock the iPhone, then close Settings and open it again.",
@@ -700,19 +700,48 @@ struct ContentView: View {
         .glassEffect(.regular, in: .capsule)
     }
 
-    private var modePicker: some View {
-        Picker("Mode", selection: $mode) {
-            Label("Spot", systemImage: "mappin").tag(Mode.spot)
-            Label("Route", systemImage: "point.topleft.down.to.point.bottomright.curvepath").tag(Mode.route)
-            Label("Wander", systemImage: "figure.walk.motion").tag(Mode.wander)
+    /// a full-width switch, the mac's own segmented picker won't stretch to the card
+    private func segmented<T: Hashable>(_ selection: Binding<T>, _ items: [(T, String, String)]) -> some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.0) { item in
+                let on = selection.wrappedValue == item.0
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) { selection.wrappedValue = item.0 }
+                } label: {
+                    Label(item.1, systemImage: item.2)
+                        .font(.system(size: 13, weight: on ? .semibold : .medium, design: .rounded))
+                        .foregroundStyle(on ? Color.white : Color.primary)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background { if on { Capsule().fill(Color.blue.gradient) } }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
+        .padding(3)
+        .background(Capsule().fill(.quaternary))
     }
 
-    private var locationCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            modePicker
+    /// one card for every mode, sized by the route layout, the tallest, so it keeps its size when switching
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            segmented($mode, [(.spot, "Spot", "mappin"),
+                              (.route, "Route", "point.topleft.down.to.point.bottomright.curvepath"),
+                              (.wander, "Wander", "figure.walk.motion")])
+            routeBody
+                .opacity(mode == .route ? 1 : 0)
+                .allowsHitTesting(mode == .route)
+                .overlay(alignment: .top) {
+                    if mode != .route { spotBody }
+                }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+    }
+
+    private var spotBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
                     Circle().fill(.blue.gradient)
@@ -753,6 +782,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
 
+            Spacer(minLength: 18)
             HStack(spacing: 10) {
                 Button {
                     guard let c = current?.coordinate else { return }
@@ -788,25 +818,16 @@ struct ContentView: View {
                 .disabled(!canAct)
             }
         }
-        .padding(18)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
 
-    private var routeCard: some View {
+    private var routeBody: some View {
         VStack(alignment: .leading, spacing: 14) {
-            modePicker
-
             VStack(spacing: 6) {
                 endRow(.from)
                 endRow(.to)
             }
 
-            Picker("Travel", selection: $travel) {
-                Label("Walk", systemImage: Travel.walk.icon).tag(Travel.walk)
-                Label("Drive", systemImage: Travel.drive.icon).tag(Travel.drive)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            segmented($travel, [(.walk, "Walk", Travel.walk.icon), (.drive, "Drive", Travel.drive.icon)])
 
             Group {
                 if routing {
@@ -855,8 +876,6 @@ struct ContentView: View {
                 .disabled(!canAct)
             }
         }
-        .padding(18)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
 
     private func endRow(_ end: End) -> some View {
@@ -970,7 +989,7 @@ struct ContentView: View {
         route = nil
         routeProblem = nil
         guard let from, let to else { return }
-        let wanted = (from.id, to.id, travel)
+        let wanted = (from.coordinate, to.coordinate, travel)
         routing = true
         defer { routing = false }
         let request = MKDirections.Request()
@@ -979,7 +998,8 @@ struct ContentView: View {
         request.transportType = travel.transport
         let found = try? await MKDirections(request: request).calculate().routes.first
         // the ends or the travel mode changed while apple was working it out
-        guard self.from?.id == wanted.0, self.to?.id == wanted.1, travel == wanted.2 else { return }
+        // compare spots, not places, a looked-up street name swaps in a renamed place at the same spot
+        guard same(self.from?.coordinate, wanted.0), same(self.to?.coordinate, wanted.1), travel == wanted.2 else { return }
         guard let found else {
             routeProblem = "Couldn't find a \(travel.verb) route between those places."
             return
@@ -989,6 +1009,10 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.8)) {
             camera = .rect(box.insetBy(dx: -box.width * 0.25 - 400, dy: -box.height * 0.25 - 400))
         }
+    }
+
+    private func same(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D) -> Bool {
+        a?.latitude == b.latitude && a?.longitude == b.longitude
     }
 
     private func startRoute() {
