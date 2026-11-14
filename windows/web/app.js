@@ -74,10 +74,15 @@ function metres(a, b) {
   return 2 * 6371000 * Math.asin(Math.sqrt(h));
 }
 
+// where this pc is, the app can't read an iphone's real gps, but one plugged in or on the same wi-fi is nearby, so
+// its dot goes here when it isn't using a simulated location
+let here = null;
+navigator.geolocation?.watchPosition((at) => { here = [at.coords.latitude, at.coords.longitude]; }, () => {}, { maximumAge: 60000 });
+
 // where a phone is pretending to be right now, it moves along its trip at a steady speed and stops at the end
 function position(p) {
   const last = p.last;
-  if (!last) return null;
+  if (!last) return here;
   const trip = last.trip;
   if (!trip || !trip.points?.length) return [last.lat, last.lon];
   let left = Math.max(0, Date.now() - trip.start) / 1000 * trip.speed;
@@ -96,7 +101,7 @@ function position(p) {
 
 function moveDots() {
   for (const udid of Object.keys(dots)) {
-    if (!phones.some((p) => p.udid === udid && p.last)) { dots[udid].remove(); delete dots[udid]; }
+    if (!phones.some((p) => p.udid === udid && position(p))) { dots[udid].remove(); delete dots[udid]; }
   }
   for (const p of phones) {
     const at = position(p);
@@ -428,7 +433,9 @@ async function wanderAround() {
 
 async function resetLocation() {
   const p = phone();
-  if (p) await act(() => api().clear(p.udid));
+  if (!p) return;
+  await act(() => api().clear(p.udid));
+  if (!phone()?.last && here) map.flyTo(here, 16);
 }
 
 $("set").onclick = () => (mode === "wander" ? wanderAround() : setLocation());

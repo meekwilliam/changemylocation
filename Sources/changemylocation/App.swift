@@ -156,6 +156,35 @@ final class Manager {
     }
 }
 
+// MARK: - here
+
+/// where this mac is, the app can't read an iphone's real gps, but one plugged in or on the same wi-fi is nearby, so
+/// its dot goes here when it isn't using a simulated location
+@MainActor @Observable
+final class Here: NSObject, CLLocationManagerDelegate {
+    var coordinate: CLLocationCoordinate2D?
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.requestWhenInUseAuthorization()
+        manager.startUpdatingLocation()
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let c = locations.last?.coordinate else { return }
+        Task { @MainActor in self.coordinate = c }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        manager.startUpdatingLocation()
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+}
+
 // MARK: - phone
 
 /// one iphone, set location hands the spot to the phone through the engine, the phone's own dtlocationd then runs
@@ -395,6 +424,7 @@ struct ContentView: View {
     @State private var routing = false
     @State private var routeProblem: String?
     @State private var now = Date()
+    @State private var mac = Here()
 
     private var phone: Phone? { manager.selectedPhone }
     private var current: Place? { phone?.selected ?? draft }
@@ -431,7 +461,7 @@ struct ContentView: View {
                         }
                     }
                     ForEach(manager.phones) { p in
-                        if let here = p.position(at: now) {
+                        if let here = p.position(at: now) ?? (p.connected ? mac.coordinate : nil) {
                             Annotation(p.name, coordinate: here, anchor: .center) {
                                 PhoneDot(active: p.id == manager.selectedID)
                             }
@@ -956,7 +986,11 @@ struct ContentView: View {
     }
 
     private func reset() {
-        if let phone { Task { await phone.clear() } }
+        guard let phone else { return }
+        Task {
+            await phone.clear()
+            if !phone.holding, let c = mac.coordinate { fly(to: c) }
+        }
     }
 
     private func pointerCoordinate(_ proxy: MapProxy) -> CLLocationCoordinate2D? {
