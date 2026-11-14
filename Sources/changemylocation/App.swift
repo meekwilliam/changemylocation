@@ -584,6 +584,10 @@ struct ContentView: View {
             }
         }
         .onChange(of: travel) { Task { await planRoute() } }
+        // with nothing picked, open on where the mac is rather than the default spot
+        .onChange(of: mac.coordinate == nil) {
+            if current == nil, let c = mac.coordinate { fly(to: c) }
+        }
     }
 
     // MARK: tabs
