@@ -7,6 +7,7 @@ window.bridge = {
   clear: (udid) => invoke("clear", { udid }),
   plan_route: (from, to, travel) => invoke("plan_route", { from, to, travel }),
   start_route: (udid, points, speed, name) => invoke("start_route", { udid, points, speed, name }),
+  wander: (udid, lat, lon, name) => invoke("wander", { udid, lat, lon, name }),
   reveal_developer_mode: (udid) => invoke("reveal_developer_mode", { udid }),
   search: (query) => invoke("search", { query }),
   describe: (lat, lon) => invoke("describe", { lat, lon }),

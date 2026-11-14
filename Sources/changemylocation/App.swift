@@ -52,7 +52,42 @@ extension MKMultiPoint {
     }
 }
 
-enum Mode: Hashable { case spot, route }
+enum Mode: Hashable { case spot, route, wander }
+
+/// how far wander strays from its spot, the engine's WANDER_RADIUS_METRES
+let wanderRadius: CLLocationDistance = 40
+
+/// a route or wander the phone is playing, kept so the map can show where the phone is along it
+struct Trip: Codable {
+    var points: [[Double]]
+    var speed: Double
+    var start: Date
+
+    init(_ coordinates: [CLLocationCoordinate2D], speed: Double) {
+        points = coordinates.map { [$0.latitude, $0.longitude] }
+        self.speed = speed
+        start = Date()
+    }
+
+    /// where the phone should be by now, it moves at a steady speed and stops at the last point
+    func position(at date: Date) -> CLLocationCoordinate2D? {
+        guard let first = points.first else { return nil }
+        var left = max(0, date.timeIntervalSince(start)) * speed
+        var here = CLLocation(latitude: first[0], longitude: first[1])
+        for p in points.dropFirst() {
+            let next = CLLocation(latitude: p[0], longitude: p[1])
+            let step = here.distance(from: next)
+            if left < step, step > 0 {
+                let f = left / step
+                return CLLocationCoordinate2D(latitude: here.coordinate.latitude + (next.coordinate.latitude - here.coordinate.latitude) * f,
+                                              longitude: here.coordinate.longitude + (next.coordinate.longitude - here.coordinate.longitude) * f)
+            }
+            left -= step
+            here = next
+        }
+        return here.coordinate
+    }
+}
 
 enum Travel: Hashable {
     case walk, drive
@@ -144,12 +179,32 @@ final class Phone: Identifiable {
             else { UserDefaults.standard.removeObject(forKey: heldKey) }
         }
     }
+    /// the route or wander the phone is playing, if any, remembered across launches like held
+    var trip: Trip? {
+        didSet {
+            if let trip, let data = try? JSONEncoder().encode(trip) { UserDefaults.standard.set(data, forKey: tripKey) }
+            else { UserDefaults.standard.removeObject(forKey: tripKey) }
+        }
+    }
     var busy = false
     var message = ""
     var messageIsError = false
+    private var messageID = UUID()
 
     var holding: Bool { held != nil }
     private var heldKey: String { "held.\(id)" }
+    private var tripKey: String { "trip.\(id)" }
+
+    /// whether the phone is set to this spot or wandering around it, its dot shows the spot then
+    func isResting(at c: CLLocationCoordinate2D) -> Bool {
+        held?.latitude == c.latitude && held?.longitude == c.longitude
+    }
+
+    /// where the phone is pretending to be right now
+    func position(at date: Date) -> CLLocationCoordinate2D? {
+        guard held != nil else { return nil }
+        return trip?.position(at: date) ?? held
+    }
 
     init(id: String, name: String) {
         self.id = id
@@ -159,6 +214,7 @@ final class Phone: Identifiable {
             held = c
             // a restart clears the phone's simulation, so keep the last spot ready to set again in one click
             selected = Place(name: "Last location set", subtitle: "", coordinate: c)
+            if let data = UserDefaults.standard.data(forKey: tripKey) { trip = try? JSONDecoder().decode(Trip.self, from: data) }
         }
     }
 
@@ -169,9 +225,10 @@ final class Phone: Identifiable {
         let r = await Engine.run(["set", id, "\(c.latitude)", "\(c.longitude)"])
         if r.ok {
             held = c
+            trip = nil
             if !r.messages.isEmpty { note(r.messages) }
             note("location handed to the phone; it holds it with nothing connected")
-            show("Location set to \(c.text(5)). The iPhone holds it on its own until Reset or a restart.", error: false)
+            show("Location set to \(c.text(5))", error: false)
         } else {
             note("couldn't set it: \(lastLine(r.messages))")
             show("Couldn't set \(name)'s location: \(lastLine(r.messages))", error: true)
@@ -186,12 +243,36 @@ final class Phone: Identifiable {
         let r = await Engine.run(["route", id, "\(speed)"] + points.map { "\($0.latitude),\($0.longitude)" })
         if r.ok {
             held = end
+            trip = Trip(points, speed: speed)
             let arrival = Date().addingTimeInterval(seconds).formatted(date: .omitted, time: .shortened)
             note("route handed to the phone; it moves on its own")
-            show("On the way. The iPhone moves on its own and gets there around \(arrival), then stays until Reset or a restart.", error: false)
+            show("On the way, arriving around \(arrival)", error: false)
         } else {
             note("couldn't start the route: \(lastLine(r.messages))")
             show("Couldn't start \(name)'s route: \(lastLine(r.messages))", error: true)
+        }
+    }
+
+    /// the phone walks slowly around the spot on its own for hours, the engine makes up the path
+    func wander(around c: CLLocationCoordinate2D) async {
+        busy = true
+        defer { busy = false }
+        note("Wander pressed (\(c.text(5)))")
+        let r = await Engine.run(["wander", id, "\(c.latitude)", "\(c.longitude)"])
+        // the engine prints its speed, then the path it handed the phone
+        let lines = r.output.split(separator: "\n")
+        if r.ok, let speed = lines.first.flatMap({ Double($0) }) {
+            let points = lines.dropFirst().compactMap { line -> CLLocationCoordinate2D? in
+                let parts = line.split(separator: ",").compactMap { Double($0) }
+                return parts.count == 2 ? CLLocationCoordinate2D(latitude: parts[0], longitude: parts[1]) : nil
+            }
+            held = c
+            trip = Trip(points, speed: speed)
+            note("wander handed to the phone; it moves on its own")
+            show("Wandering around \(c.text(5))", error: false)
+        } else {
+            note("couldn't start wandering: \(lastLine(r.messages))")
+            show("Couldn't start \(name) wandering: \(lastLine(r.messages))", error: true)
         }
     }
 
@@ -202,7 +283,8 @@ final class Phone: Identifiable {
         let r = await Engine.run(["clear", id])
         if r.ok {
             held = nil
-            show("Restored real GPS location", error: false)
+            trip = nil
+            show("Back to the real location", error: false)
         } else {
             show("Couldn't reset \(name): \(lastLine(r.messages))", error: true)
         }
@@ -227,9 +309,16 @@ final class Phone: Identifiable {
         }
     }
 
+    /// a notice that fades away by itself, errors stay up a little longer
     private func show(_ text: String, error: Bool) {
+        let id = UUID()
+        messageID = id
         message = text
         messageIsError = error
+        Task {
+            try? await Task.sleep(for: .seconds(error ? 8 : 4))
+            if messageID == id { message = "" }
+        }
     }
 }
 
@@ -256,6 +345,33 @@ func describe(_ item: MKMapItem) -> String {
 
 // MARK: - views
 
+/// the phone on the map, like maps' own blue dot
+struct PhoneDot: View {
+    var active: Bool
+    @State private var pulse = false
+
+    var body: some View {
+        let color: Color = active ? .blue : .gray
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.3))
+                .frame(width: 44, height: 44)
+                .scaleEffect(pulse ? 1 : 0.4)
+                .opacity(pulse ? 0 : 1)
+            Circle()
+                .fill(.white)
+                .frame(width: 22, height: 22)
+                .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+            Circle()
+                .fill(color.gradient)
+                .frame(width: 15, height: 15)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) { pulse = true }
+        }
+    }
+}
+
 struct ContentView: View {
     @State private var manager = Manager()
     @State private var camera: MapCameraPosition = .region(MKCoordinateRegion(
@@ -278,6 +394,7 @@ struct ContentView: View {
     @State private var route: MKRoute?
     @State private var routing = false
     @State private var routeProblem: String?
+    @State private var now = Date()
 
     private var phone: Phone? { manager.selectedPhone }
     private var current: Place? { phone?.selected ?? draft }
@@ -298,13 +415,25 @@ struct ContentView: View {
                         }
                     } else {
                         ForEach(manager.phones) { p in
-                            if let place = p.selected {
-                                Marker(p.name, systemImage: p.holding ? "location.fill" : "mappin", coordinate: place.coordinate)
+                            if let place = p.selected, !p.isResting(at: place.coordinate) {
+                                Marker(p.name, systemImage: "mappin", coordinate: place.coordinate)
                                     .tint(p.id == manager.selectedID ? .blue : .gray)
                             }
                         }
                         if phone == nil, let draft {
                             Marker(draft.name, systemImage: "mappin", coordinate: draft.coordinate).tint(.blue)
+                        }
+                        if mode == .wander, let c = current?.coordinate {
+                            MapCircle(center: c, radius: wanderRadius)
+                                .foregroundStyle(.blue.opacity(0.12))
+                                .stroke(.blue.opacity(0.5), lineWidth: 1.5)
+                        }
+                    }
+                    ForEach(manager.phones) { p in
+                        if let here = p.position(at: now) {
+                            Annotation(p.name, coordinate: here, anchor: .center) {
+                                PhoneDot(active: p.id == manager.selectedID)
+                            }
                         }
                     }
                 }
@@ -325,6 +454,16 @@ struct ContentView: View {
                         setLocation(c)
                     } label: {
                         Label("Set Location Here", systemImage: "location.fill")
+                    }
+                    .disabled(!canAct)
+
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .wander
+                        pick(c)
+                        wanderAround(c)
+                    } label: {
+                        Label("Wander Here", systemImage: "figure.walk.motion")
                     }
                     .disabled(!canAct)
 
@@ -379,10 +518,12 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 tabBar
                 searchArea
+                if let phone, !phone.message.isEmpty { notice(phone) }
                 Spacer()
                 bottomPanel
             }
             .padding(20)
+            .animation(.spring(duration: 0.4), value: phone?.message)
         }
         .task {
             await manager.refresh()
@@ -392,9 +533,16 @@ struct ContentView: View {
                 await manager.refresh()
             }
         }
+        // moves the phones' dots along their routes
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                now = Date()
+            }
+        }
         .onChange(of: manager.selectedID) {
             results = []
-            if mode == .spot, let place = current { fly(to: place.coordinate) }
+            if mode != .route, let place = current { fly(to: place.coordinate) }
         }
         .onChange(of: mode) {
             results = []
@@ -524,11 +672,6 @@ struct ContentView: View {
                 statusPill
                 if mode == .spot { locationCard } else { routeCard }
 
-                if let phone, !phone.message.isEmpty {
-                    pill(phone.message,
-                         icon: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
-                         color: phone.messageIsError ? .orange : .green)
-                }
                 if phone?.developerMode == false {
                     pill("Turn on Developer Mode on the iPhone: Settings › Privacy & Security › Developer Mode. Not there? Unlock the iPhone, then close Settings and open it again.",
                          icon: "wrench.and.screwdriver.fill", color: .orange)
@@ -561,6 +704,7 @@ struct ContentView: View {
         Picker("Mode", selection: $mode) {
             Label("Spot", systemImage: "mappin").tag(Mode.spot)
             Label("Route", systemImage: "point.topleft.down.to.point.bottomright.curvepath").tag(Mode.route)
+            Label("Wander", systemImage: "figure.walk.motion").tag(Mode.wander)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -572,7 +716,7 @@ struct ContentView: View {
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
                     Circle().fill(.blue.gradient)
-                    Image(systemName: phone?.holding == true ? "location.fill" : "mappin")
+                    Image(systemName: mode == .wander ? "figure.walk.motion" : phone?.holding == true ? "location.fill" : "mappin")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                         .contentTransition(.symbolEffect(.replace))
@@ -594,6 +738,12 @@ struct ContentView: View {
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
+                        if mode == .wander {
+                            Text("Walks slowly around this spot, within about \(Int(wanderRadius)) m, for hours.")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                        }
                     } else {
                         Text("Click the map or search above.")
                             .font(.system(size: 13, design: .rounded))
@@ -605,15 +755,16 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    if let c = current?.coordinate { setLocation(c) }
+                    guard let c = current?.coordinate else { return }
+                    if mode == .wander { wanderAround(c) } else { setLocation(c) }
                 } label: {
                     HStack(spacing: 8) {
                         if phone?.busy == true {
                             ProgressView().controlSize(.small)
                         } else {
-                            Image(systemName: "location.fill")
+                            Image(systemName: mode == .wander ? "figure.walk.motion" : "location.fill")
                         }
-                        Text("Set Location")
+                        Text(mode == .wander ? "Start Wandering" : "Set Location")
                     }
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .frame(maxWidth: .infinity)
@@ -763,6 +914,25 @@ struct ContentView: View {
 
     private func setLocation(_ c: CLLocationCoordinate2D) {
         if let phone { Task { await phone.set(c) } }
+    }
+
+    private func wanderAround(_ c: CLLocationCoordinate2D) {
+        if let phone { Task { await phone.wander(around: c) } }
+    }
+
+    private func notice(_ phone: Phone) -> some View {
+        Label {
+            Text(phone.message).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: phone.messageIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(phone.messageIsError ? .orange : .green)
+        }
+        .font(.system(size: 13, weight: .semibold, design: .rounded))
+        .lineLimit(2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .capsule)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private func reset() {

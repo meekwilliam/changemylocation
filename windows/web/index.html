@@ -8,62 +8,91 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none">
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.8"/><path d="M10.5 18.5h3"/></symbol>
+  <symbol id="i-phone-off" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.8"/><path d="M3 3l18 18"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.5s-6.5-5.8-6.5-11.5a6.5 6.5 0 0 1 13 0c0 5.7-6.5 11.5-6.5 11.5z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M20.5 3.5l-7.2 17-2.4-7.4-7.4-2.4z" fill="currentColor"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18.5" r="2.3"/><circle cx="18" cy="5.5" r="2.3"/><path d="M8.3 18.5H15a3.3 3.3 0 0 0 0-6.6H9a3.3 3.3 0 0 1 0-6.6h6.7"/></symbol>
+  <symbol id="i-wander" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke-dasharray="2.6 2.9"/><path d="M8.5 14c1-3 3.5-4.8 5.5-3.6 1.6 1 .2 3.6-1.6 2.6"/><circle cx="15.5" cy="8.5" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13.5" cy="4.2" r="1.9" fill="currentColor"/><path d="M11 8.5l-3 2.5-1 3.5"/><path d="M11 8.5l2.5.5 1.5 3 3 1"/><path d="M11 8.5l-1 6 3.5 3 1 4"/><path d="M10 14.5l-2 3-2.5 3.5"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M4 16.5v-4l2-5a2 2 0 0 1 1.9-1.3h8.2A2 2 0 0 1 18 7.5l2 5v4z"/><path d="M4 12.5h16"/><circle cx="7.8" cy="16.8" r="1.7" fill="currentColor"/><circle cx="16.2" cy="16.8" r="1.7" fill="currentColor"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="M20 20l-4.6-4.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M8 12.3l2.8 2.8 5.2-5.4" stroke="#fff"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9a2 2 0 0 1 3.4 0l7.6 13.2a2 2 0 0 1-1.7 3H4.4a2 2 0 0 1-1.7-3z" fill="currentColor" stroke="none"/><path d="M12 9v4.2M12 16.6v.1" stroke="#fff"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5.5 21V4"/><path d="M5.5 4.5h11l-2.2 4 2.2 4h-11"/></symbol>
+  <symbol id="i-start" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
+  <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.3 5.3l-5.6 5.6a1.8 1.8 0 0 0 2.6 2.6l5.6-5.6a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.6-.5-.5-2.6z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-update" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></symbol>
+</svg>
+
 <div id="map"></div>
 
 <div id="top">
   <div id="tabs"></div>
-  <form id="search">
+  <form id="search" class="glass">
+    <svg class="icon muted"><use href="#i-search"/></svg>
     <input id="query" type="search" placeholder="Search an address, place, or &quot;lat, lon&quot;" autocomplete="off">
-    <ul id="results" hidden></ul>
+    <ul id="results" class="glass" hidden></ul>
   </form>
+  <div id="message" class="glass" hidden><svg class="icon"><use href="#i-check"/></svg><span id="message-text"></span></div>
 </div>
 
 <div id="panel">
-  <button id="update" class="pill" hidden></button>
-  <div id="status" class="pill"><span id="status-text">Looking for iPhones…</span></div>
-  <div id="card">
+  <button id="update" class="glass pill" hidden><svg class="icon"><use href="#i-update"/></svg><span id="update-text"></span></button>
+  <div id="status" class="glass pill"><svg class="icon muted"><use href="#i-phone"/></svg><span id="status-text">Looking for iPhones…</span></div>
+  <div id="card" class="glass">
     <div id="modes" class="seg">
-      <button data-mode="spot" class="on">📍 Spot</button>
-      <button data-mode="route">🧭 Route</button>
+      <button data-mode="spot" class="on"><svg class="icon"><use href="#i-pin"/></svg>Spot</button>
+      <button data-mode="route"><svg class="icon"><use href="#i-route"/></svg>Route</button>
+      <button data-mode="wander"><svg class="icon"><use href="#i-wander"/></svg>Wander</button>
     </div>
     <div id="spot-view">
       <div id="place">
-        <div id="place-name">No location selected</div>
-        <div id="place-sub">Click the map or search above.</div>
-        <div id="place-coord"></div>
+        <div id="badge"><svg class="icon"><use id="badge-icon" href="#i-pin"/></svg></div>
+        <div id="place-text">
+          <div id="place-name">No location selected</div>
+          <div id="place-sub">Click the map or search above.</div>
+          <div id="place-coord"></div>
+          <div id="wander-note" hidden>Walks slowly around this spot, within about 40 m, for hours.</div>
+        </div>
       </div>
       <div class="buttons">
-        <button id="set" class="primary" disabled>Set Location</button>
-        <button id="reset" class="reset" title="Reset to the real location" disabled>↺</button>
+        <button id="set" class="primary" disabled><svg class="icon"><use id="set-icon" href="#i-arrow"/></svg><span id="set-text">Set Location</span></button>
+        <button id="reset" class="round" title="Reset to the real location" disabled><svg class="icon"><use href="#i-reset"/></svg></button>
       </div>
     </div>
     <div id="route-view" hidden>
-      <button class="end" data-end="from"><span class="dot from"></span><span class="end-text"><small>From</small><b id="from-name">Not set</b></span></button>
-      <button class="end" data-end="to"><span class="dot to"></span><span class="end-text"><small>To</small><b id="to-name">Not set</b></span></button>
+      <button class="end" data-end="from"><svg class="icon from"><use href="#i-start"/></svg><span class="end-text"><small>From</small><b id="from-name">Not set</b></span></button>
+      <button class="end" data-end="to"><svg class="icon to"><use href="#i-flag"/></svg><span class="end-text"><small>To</small><b id="to-name">Not set</b></span></button>
       <div id="travel" class="seg">
-        <button data-travel="walk" class="on">🚶 Walk</button>
-        <button data-travel="drive">🚗 Drive</button>
+        <button data-travel="walk" class="on"><svg class="icon"><use href="#i-walk"/></svg>Walk</button>
+        <button data-travel="drive"><svg class="icon"><use href="#i-car"/></svg>Drive</button>
       </div>
       <div id="route-info"></div>
       <div class="buttons">
-        <button id="go" class="primary" disabled>▶ Start Route</button>
-        <button id="route-reset" class="reset" title="Stop and reset to the real location" disabled>↺</button>
+        <button id="go" class="primary" disabled><svg class="icon"><use href="#i-play"/></svg><span id="go-text">Start Route</span></button>
+        <button id="route-reset" class="round" title="Stop and reset to the real location" disabled><svg class="icon"><use href="#i-reset"/></svg></button>
       </div>
     </div>
   </div>
-  <div id="message" class="pill" hidden></div>
-  <div id="devmode" class="pill" hidden>Turn on Developer Mode on the iPhone: Settings › Privacy &amp; Security › Developer Mode. Not there? Unlock the iPhone, then close Settings and open it again.</div>
+  <div id="devmode" class="glass pill warn" hidden><svg class="icon"><use href="#i-tools"/></svg><span>Turn on Developer Mode on the iPhone: Settings › Privacy &amp; Security › Developer Mode. Not there? Unlock the iPhone, then close Settings and open it again.</span></div>
 </div>
 
-<div id="menu" hidden>
-  <button data-action="set">Set Location Here</button>
-  <button data-action="pin">Drop Pin Here</button>
-  <button data-action="copy">Copy Coordinates</button>
+<div id="menu" class="glass" hidden>
+  <button data-action="set"><svg class="icon"><use href="#i-arrow"/></svg>Set Location Here</button>
+  <button data-action="wander"><svg class="icon"><use href="#i-wander"/></svg>Wander Here</button>
+  <button data-action="pin"><svg class="icon"><use href="#i-pin"/></svg>Drop Pin Here</button>
   <hr>
-  <button data-action="from">Route From Here</button>
-  <button data-action="to">Route To Here</button>
+  <button data-action="from"><svg class="icon"><use href="#i-start"/></svg>Route From Here</button>
+  <button data-action="to"><svg class="icon"><use href="#i-flag"/></svg>Route To Here</button>
   <hr>
-  <button data-action="reset">Reset to Real GPS</button>
+  <button data-action="copy"><svg class="icon"><use href="#i-copy"/></svg>Copy Coordinates</button>
+  <hr>
+  <button data-action="reset"><svg class="icon"><use href="#i-reset"/></svg>Reset to Real GPS</button>
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>

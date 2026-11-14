@@ -176,6 +176,54 @@ fn thin(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     kept
 }
 
+/// walking pace while wandering, metres a second
+pub const WANDER_SPEED: f64 = 0.7;
+const WANDER_RADIUS_METRES: f64 = 40.0;
+const WANDER_POINTS: usize = 1500;
+
+/// a slow random walk that stays within a small circle around the spot, to hand to `play_route`, it lasts hours
+/// since the phone can't loop a route, short steps now and then read as pausing to look around
+pub fn wander_route(latitude: f64, longitude: f64) -> Vec<(f64, f64)> {
+    let mut random = Random::new();
+    // metres east and north of the spot
+    let (mut x, mut y) = (0.0_f64, 0.0_f64);
+    let mut heading = random.between(0.0, std::f64::consts::TAU);
+    let mut points = vec![(latitude, longitude)];
+    let metres_per_degree_lat = 111_320.0;
+    let metres_per_degree_lon = 111_320.0 * latitude.to_radians().cos().max(0.01);
+    while points.len() < WANDER_POINTS {
+        let lingering = random.between(0.0, 1.0) < 0.2;
+        let step = if lingering { random.between(3.5, 6.0) } else { random.between(8.0, 22.0) };
+        heading += random.between(-1.0, 1.0);
+        let (mut nx, mut ny) = (x + step * heading.cos(), y + step * heading.sin());
+        if nx.hypot(ny) > WANDER_RADIUS_METRES {
+            // turn back towards the middle, off to one side so it doesn't pace a straight line
+            heading = (-y).atan2(-x) + random.between(-0.8, 0.8);
+            (nx, ny) = (x + step * heading.cos(), y + step * heading.sin());
+        }
+        (x, y) = (nx, ny);
+        points.push((latitude + y / metres_per_degree_lat, longitude + x / metres_per_degree_lon));
+    }
+    points
+}
+
+/// xorshift seeded from the clock, plenty for picking wander steps
+struct Random(u64);
+
+impl Random {
+    fn new() -> Self {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
+        Random((nanos as u64) | 1)
+    }
+
+    fn between(&mut self, low: f64, high: f64) -> f64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        low + (self.0 >> 11) as f64 / (1u64 << 53) as f64 * (high - low)
+    }
+}
+
 fn metres(a: (f64, f64), b: (f64, f64)) -> f64 {
     let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
     let dlat = lat2 - lat1;

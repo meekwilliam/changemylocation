@@ -75,9 +75,7 @@ async fn set(udid: String, lat: f64, lon: f64, name: Option<String>) -> Reply {
             edit_state(|state| {
                 state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default() }));
             });
-            let message =
-                format!("Location set to {lat:.5}, {lon:.5}. The iPhone holds it on its own until Reset or a restart.");
-            Reply { ok: true, message }
+            Reply { ok: true, message: format!("Location set to {lat:.5}, {lon:.5}") }
         }
         Err(e) => {
             log(&format!("[{}] set failed: {e}", short(&udid)));
@@ -94,7 +92,7 @@ async fn clear(udid: String) -> Reply {
             edit_state(|state| {
                 state.remove(&udid);
             });
-            Reply { ok: true, message: "Restored the real location.".into() }
+            Reply { ok: true, message: "Back to the real location".into() }
         }
         Err(e) => {
             log(&format!("[{}] reset failed: {e}", short(&udid)));
@@ -137,16 +135,42 @@ async fn start_route(udid: String, points: Vec<[f64; 2]>, speed: f64, name: Opti
     match within_a_minute(engine::play_route(&udid, &waypoints, speed)).await {
         Ok(()) => {
             let [lat, lon] = points[points.len() - 1];
+            let trip = json!({ "points": points, "speed": speed, "start": now_ms() });
             edit_state(|state| {
-                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default() }));
+                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default(), "trip": trip }));
             });
-            Reply { ok: true, message: "On the way. The iPhone moves on its own and stays at the end until Reset or a restart.".into() }
+            Reply { ok: true, message: "On the way".into() }
         }
         Err(e) => {
             log(&format!("[{}] route failed: {e}", short(&udid)));
             Reply { ok: false, message: e.to_string() }
         }
     }
+}
+
+/// the phone walks slowly around the spot on its own for hours, the engine makes up the path
+#[tauri::command]
+async fn wander(udid: String, lat: f64, lon: f64, name: Option<String>) -> Reply {
+    log(&format!("[{}] Wander pressed ({lat:.5}, {lon:.5})", short(&udid)));
+    let points = engine::wander_route(lat, lon);
+    match within_a_minute(engine::play_route(&udid, &points, engine::WANDER_SPEED)).await {
+        Ok(()) => {
+            let points: Vec<[f64; 2]> = points.iter().map(|&(a, b)| [a, b]).collect();
+            let trip = json!({ "points": points, "speed": engine::WANDER_SPEED, "start": now_ms() });
+            edit_state(|state| {
+                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default(), "trip": trip }));
+            });
+            Reply { ok: true, message: format!("Wandering around {lat:.5}, {lon:.5}") }
+        }
+        Err(e) => {
+            log(&format!("[{}] wander failed: {e}", short(&udid)));
+            Reply { ok: false, message: e.to_string() }
+        }
+    }
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
 }
 
 #[tauri::command]
@@ -318,6 +342,7 @@ fn main() {
             clear,
             plan_route,
             start_route,
+            wander,
             reveal_developer_mode,
             search,
             describe,

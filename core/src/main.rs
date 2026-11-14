@@ -6,14 +6,16 @@
 //!     changemylocation-cli clear <udid>             back to the real location
 //!     changemylocation-cli reveal-developer-mode <udid>   show the developer mode switch in the phone's settings
 //!     changemylocation-cli route <udid> <speed> <lat,lon> <lat,lon>...   move along waypoints at speed m/s
+//!     changemylocation-cli wander <udid> <lat> <lon>   walk slowly around a small area, prints speed then the points
 
 use std::process::ExitCode;
 
 use changemylocation_core::{
-    Link, Result, clear_location, phones, play_route, reveal_developer_mode, set_location, within_a_minute,
+    Link, Result, WANDER_SPEED, clear_location, phones, play_route, reveal_developer_mode, set_location, wander_route,
+    within_a_minute,
 };
 
-const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid> | reveal-developer-mode <udid> | route <udid> <speed> <lat,lon>...";
+const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid> | reveal-developer-mode <udid> | route <udid> <speed> <lat,lon>... | wander <udid> <lat> <lon>";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -45,6 +47,21 @@ async fn main() -> ExitCode {
                 _ => return usage(),
             }
         }
+        ["wander", udid, lat, lon] => match (lat.parse(), lon.parse()) {
+            (Ok(lat), Ok(lon)) => {
+                let points = wander_route(lat, lon);
+                let result = within_a_minute(play_route(udid, &points, WANDER_SPEED)).await;
+                if result.is_ok() {
+                    // the app draws the phone moving along these
+                    println!("{WANDER_SPEED}");
+                    for (lat, lon) in points {
+                        println!("{lat},{lon}");
+                    }
+                }
+                result
+            }
+            _ => return usage(),
+        },
         _ => return usage(),
     };
     match result {

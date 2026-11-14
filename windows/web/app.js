@@ -1,4 +1,5 @@
-// the window's page, map, phone tabs, search, set and reset, phone work happens in the app through window.bridge in bridge.js
+// the window's page, map, phone tabs, search, set, routes, wander and reset, phone work happens in the app through
+// window.bridge in bridge.js
 
 const $ = (id) => document.getElementById(id);
 // leaflet guesses its image folder from the stylesheet, which can miss inside the app window
@@ -20,7 +21,15 @@ const revealing = new Set();
 // the spot picked on the map for each phone, not necessarily set yet, DRAFT holds it while no phone is connected
 const picked = {};
 const DRAFT = "";
-const marker = L.marker([0, 0]);
+const icon = (name) => `<svg class="icon"><use href="#i-${name}"/></svg>`;
+const marker = L.marker([0, 0], {
+  icon: L.divIcon({ className: "map-pin", html: icon("pin"), iconSize: [32, 32], iconAnchor: [16, 16] }),
+});
+// how far wander strays, the engine's WANDER_RADIUS_METRES
+const WANDER_RADIUS = 40;
+const wanderCircle = L.circle([0, 0], { radius: WANDER_RADIUS, color: "#0a7aff", weight: 1.5, fillOpacity: 0.12 });
+// each phone's blue dot, moved along its route or wander every second
+const dots = {};
 
 // route mode, the two ends, which one the next click fills in, and the planned route from the app
 let mode = "spot";
@@ -31,9 +40,9 @@ let travel = "walk";
 let route = null;
 let routing = false;
 let routeProblem = "";
-const routeLine = L.polyline([], { color: "#0a84ff", weight: 6, opacity: 0.85 });
+const routeLine = L.polyline([], { color: "#0a7aff", weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" });
 const endStyle = (fill) => ({ radius: 8, color: "#ffffff", weight: 3, fillColor: fill, fillOpacity: 1 });
-const fromMarker = L.circleMarker([0, 0], endStyle("#1f9d55"));
+const fromMarker = L.circleMarker([0, 0], endStyle("#22a55b"));
 const toMarker = L.circleMarker([0, 0], endStyle("#e5484d"));
 // metres a second, for when the route doesn't come with a travel time
 const USUAL_SPEED = { walk: 1.4, drive: 13 };
@@ -42,11 +51,70 @@ const api = () => window.bridge;
 const phone = () => phones.find((p) => p.udid === selectedId);
 const key = () => phone()?.udid ?? DRAFT;
 
+// a notice under the search that fades away by itself, errors stay up a little longer
+let messageTimer = null;
 function showMessage(text, ok) {
   const m = $("message");
-  m.textContent = text;
-  m.className = "pill " + (ok ? "ok" : "error");
-  m.hidden = !text;
+  clearTimeout(messageTimer);
+  if (!text) { m.hidden = true; return; }
+  $("message-text").textContent = text;
+  m.querySelector("use").setAttribute("href", ok ? "#i-check" : "#i-alert");
+  m.className = "glass " + (ok ? "ok" : "error");
+  m.hidden = false;
+  messageTimer = setTimeout(() => {
+    m.classList.add("leaving");
+    messageTimer = setTimeout(() => { m.hidden = true; }, 300);
+  }, ok ? 4000 : 8000);
+}
+
+function metres(a, b) {
+  const rad = Math.PI / 180;
+  const dlat = (b[0] - a[0]) * rad, dlon = (b[1] - a[1]) * rad;
+  const h = Math.sin(dlat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dlon / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+// where a phone is pretending to be right now, it moves along its trip at a steady speed and stops at the end
+function position(p) {
+  const last = p.last;
+  if (!last) return null;
+  const trip = last.trip;
+  if (!trip || !trip.points?.length) return [last.lat, last.lon];
+  let left = Math.max(0, Date.now() - trip.start) / 1000 * trip.speed;
+  let here = trip.points[0];
+  for (const next of trip.points.slice(1)) {
+    const step = metres(here, next);
+    if (left < step && step > 0) {
+      const f = left / step;
+      return [here[0] + (next[0] - here[0]) * f, here[1] + (next[1] - here[1]) * f];
+    }
+    left -= step;
+    here = next;
+  }
+  return here;
+}
+
+function moveDots() {
+  for (const udid of Object.keys(dots)) {
+    if (!phones.some((p) => p.udid === udid && p.last)) { dots[udid].remove(); delete dots[udid]; }
+  }
+  for (const p of phones) {
+    const at = position(p);
+    if (!at) continue;
+    const dot = dots[p.udid] ??= L.marker(at, {
+      icon: L.divIcon({ className: "", html: '<div class="phone-dot"><span></span></div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+      interactive: false,
+      zIndexOffset: 1000,
+    }).bindTooltip("", { permanent: true, direction: "bottom", offset: [0, 12], className: "phone-label" }).addTo(map);
+    dot.setLatLng(at);
+    dot.setTooltipContent(p.name);
+    dot.getElement()?.firstElementChild?.classList.toggle("other", p.udid !== selectedId);
+  }
+}
+
+// no pin once the phone is set there or wandering around it, its dot shows the spot
+function resting(p, spot) {
+  return p?.last && p.last.lat === spot.lat && p.last.lon === spot.lon;
 }
 
 function render() {
@@ -55,11 +123,13 @@ function render() {
   for (const p of phones) {
     const b = document.createElement("button");
     b.className = "tab" + (p.udid === selectedId ? " selected" : "");
-    b.textContent = "📱 " + p.name;
-    if (p.last) b.insertAdjacentHTML("beforeend", '<span class="held" title="Holding a location">📍</span>');
+    b.innerHTML = icon("phone") + "<span></span>";
+    b.lastChild.textContent = p.name;
+    if (p.last) b.insertAdjacentHTML("beforeend", '<svg class="icon held"><title>Holding a location</title><use href="#i-arrow"/></svg>');
     b.onclick = () => select(p.udid);
     tabs.appendChild(b);
   }
+  if (!phones.length) tabs.innerHTML = `<div class="tabs-empty glass">${icon("phone-off")}No iPhones connected</div>`;
   const p = phone();
   $("status-text").textContent = phonesError
     ? phonesError
@@ -69,13 +139,20 @@ function render() {
   $("place-name").textContent = spot ? spot.name : "No location selected";
   $("place-sub").textContent = spot ? spot.subtitle || "" : "Click the map or search above.";
   $("place-coord").textContent = spot ? `${spot.lat.toFixed(6)}, ${spot.lon.toFixed(6)}` : "";
+  const wandering = mode === "wander";
+  $("wander-note").hidden = !(wandering && spot);
+  $("badge-icon").setAttribute("href", wandering ? "#i-wander" : p?.last ? "#i-arrow" : "#i-pin");
+  $("set-icon").setAttribute("href", wandering ? "#i-wander" : "#i-arrow");
   $("set").disabled = busy || !p || !spot;
   $("reset").disabled = busy || !p;
   $("devmode").hidden = !(p && p.developerMode === false);
-  $("set").textContent = busy ? "Working…" : "Set Location";
-  if (spot && mode === "spot") marker.setLatLng([spot.lat, spot.lon]).addTo(map);
+  $("set-text").textContent = busy ? "Working…" : wandering ? "Start Wandering" : "Set Location";
+  if (spot && mode !== "route" && !resting(p, spot)) marker.setLatLng([spot.lat, spot.lon]).addTo(map);
   else marker.remove();
+  if (spot && wandering) wanderCircle.setLatLng([spot.lat, spot.lon]).addTo(map);
+  else wanderCircle.remove();
   renderRoute(p);
+  moveDots();
 }
 
 function renderRoute(p) {
@@ -92,12 +169,14 @@ function renderRoute(p) {
   }
   const info = $("route-info");
   info.classList.toggle("problem", !!routeProblem);
-  info.textContent = routing ? "Finding a route…"
-    : routeProblem ? routeProblem
-    : route ? `${distanceText(route.distance)} · ${timeText(route.duration)} ${travel === "walk" ? "walking" : "driving"}`
-    : "Click the map or search to pick each end.";
+  const [infoIcon, infoText] = routing ? ["route", "Finding a route…"]
+    : routeProblem ? ["alert", routeProblem]
+    : route ? [travel, `${distanceText(route.distance)} · ${timeText(route.duration)} ${travel === "walk" ? "walking" : "driving"}`]
+    : ["pin", "Click the map or search to pick each end."];
+  info.innerHTML = icon(infoIcon === "drive" ? "car" : infoIcon) + "<span></span>";
+  info.lastChild.textContent = infoText;
   $("go").disabled = busy || routing || !p || !route;
-  $("go").textContent = busy ? "Working…" : "▶ Start Route";
+  $("go-text").textContent = busy ? "Working…" : "Start Route";
   $("route-reset").disabled = busy || !p;
   if (on && route) routeLine.setLatLngs(route.points).addTo(map);
   else routeLine.remove();
@@ -182,7 +261,7 @@ async function startRoute() {
     const r = await api().start_route(p.udid, route.points, speed, end.name);
     if (r.ok) {
       picked[p.udid] = { ...end };
-      r.message = `On the way. The iPhone moves on its own and gets there around ${arrival}, then stays until Reset or a restart.`;
+      r.message = `On the way, arriving around ${arrival}`;
     }
     return r;
   });
@@ -205,6 +284,8 @@ function goTo(lat, lon, name, subtitle) {
 
 async function pick(lat, lon, name, subtitle) {
   if (mode === "route") return pickEnd(lat, lon, name, subtitle);
+  // close enough in to see the small area it wanders
+  if (mode === "wander" && map.getZoom() < 16) map.flyTo([lat, lon], 17);
   const k = key();
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
   picked[k] = spot;
@@ -261,7 +342,7 @@ map.on("contextmenu", (e) => {
   e.originalEvent.preventDefault();
   menuAt = e.latlng;
   const noPhone = busy || !phone();
-  for (const action of ["set", "reset"]) menu.querySelector(`[data-action="${action}"]`).disabled = noPhone;
+  for (const action of ["set", "wander", "reset"]) menu.querySelector(`[data-action="${action}"]`).disabled = noPhone;
   menu.hidden = false;
   // open at the pointer, flipped if it would run off the window
   const { clientX: x, clientY: y } = e.originalEvent;
@@ -279,6 +360,7 @@ menu.onclick = async (e) => {
   hideMenu();
   const { lat, lng } = menuAt;
   if (action === "set" || action === "pin") setMode("spot");
+  if (action === "wander") { setMode("wander"); pick(lat, lng); await wanderAround(); }
   if (action === "set") { pick(lat, lng); await setLocation(); }
   if (action === "pin") pick(lat, lng);
   if (action === "copy") copy(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
@@ -315,9 +397,9 @@ $("search").onsubmit = async (e) => {
   list.innerHTML = "";
   for (const r of results) {
     const li = document.createElement("li");
-    li.innerHTML = `<div></div><div class="sub"></div>`;
-    li.children[0].textContent = r.name;
-    li.children[1].textContent = r.subtitle;
+    li.innerHTML = `<svg class="icon result-pin"><use href="#i-pin"/></svg><div class="result-text"><div class="result-name"></div><div class="sub"></div></div>`;
+    li.querySelector(".result-name").textContent = r.name;
+    li.querySelector(".sub").textContent = r.subtitle;
     li.onclick = () => goTo(r.lat, r.lon, r.name, r.subtitle);
     list.appendChild(li);
   }
@@ -339,12 +421,17 @@ async function setLocation() {
   if (spot) await act(() => api().set(p.udid, spot.lat, spot.lon, spot.name));
 }
 
+async function wanderAround() {
+  const p = phone(), spot = p && picked[p.udid];
+  if (spot) await act(() => api().wander(p.udid, spot.lat, spot.lon, spot.name));
+}
+
 async function resetLocation() {
   const p = phone();
   if (p) await act(() => api().clear(p.udid));
 }
 
-$("set").onclick = setLocation;
+$("set").onclick = () => (mode === "wander" ? wanderAround() : setLocation());
 $("reset").onclick = resetLocation;
 $("go").onclick = startRoute;
 $("route-reset").onclick = resetLocation;
@@ -359,16 +446,17 @@ async function checkForUpdate() {
   const u = await api().update();
   if (!u) return;
   const b = $("update");
-  b.textContent = `changemylocation ${u.version} is out. Click to update.`;
+  const say = (text) => { $("update-text").textContent = text; };
+  say(`changemylocation ${u.version} is out. Click to update.`);
   b.onclick = async () => {
     b.disabled = true;
-    b.textContent = `Updating to ${u.version}… The app restarts when it's done.`;
+    say(`Updating to ${u.version}… The app restarts when it's done.`);
     try {
       await api().install_update();
     } catch (e) {
       // couldn't install it here, not writable, signature didn't match or offline, fall back to the download page
       showMessage(String(e), false);
-      b.textContent = `changemylocation ${u.version} is out. Click to download.`;
+      say(`changemylocation ${u.version} is out. Click to download.`);
       b.disabled = false;
       b.onclick = () => api().open(u.url);
     }
@@ -379,3 +467,4 @@ async function checkForUpdate() {
 checkForUpdate();
 refresh();
 setInterval(() => { if (!busy) refresh(); }, 5000);
+setInterval(moveDots, 1000);
