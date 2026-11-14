@@ -1141,11 +1141,11 @@ struct ChangeMyLocationApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("changemylocation") {
+        WindowGroup(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "changemylocation") {
             ContentView()
                 .frame(minWidth: 760, minHeight: 600)
                 // look for an update each time the app opens since sparkle alone waits a day, then hourly while it runs
-                .task { updater.updater.checkForUpdatesInBackground() }
+                .task { if updater.updater.automaticallyChecksForUpdates { updater.updater.checkForUpdatesInBackground() } }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1100, height: 780)
