@@ -5,14 +5,15 @@
 //!     changemylocation-cli set <udid> <lat> <lon>   hand the phone a location to hold
 //!     changemylocation-cli clear <udid>             back to the real location
 //!     changemylocation-cli reveal-developer-mode <udid>   show the developer mode switch in the phone's settings
+//!     changemylocation-cli route <udid> <speed> <lat,lon> <lat,lon>...   move along waypoints at speed m/s
 
 use std::process::ExitCode;
 
 use changemylocation_core::{
-    Link, Result, clear_location, phones, reveal_developer_mode, set_location, within_a_minute,
+    Link, Result, clear_location, phones, play_route, reveal_developer_mode, set_location, within_a_minute,
 };
 
-const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid> | reveal-developer-mode <udid>";
+const USAGE: &str = "usage: changemylocation-cli list | set <udid> <lat> <lon> | clear <udid> | reveal-developer-mode <udid> | route <udid> <speed> <lat,lon>...";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -31,6 +32,19 @@ async fn main() -> ExitCode {
         },
         ["clear", udid] => within_a_minute(clear_location(udid)).await,
         ["reveal-developer-mode", udid] => within_a_minute(reveal_developer_mode(udid)).await,
+        ["route", udid, speed, points @ ..] if points.len() >= 2 => {
+            let parsed: Option<Vec<(f64, f64)>> = points
+                .iter()
+                .map(|p| {
+                    let (lat, lon) = p.split_once(',')?;
+                    Some((lat.parse().ok()?, lon.parse().ok()?))
+                })
+                .collect();
+            match (speed.parse(), parsed) {
+                (Ok(speed), Some(points)) => within_a_minute(play_route(udid, &points, speed)).await,
+                _ => return usage(),
+            }
+        }
         _ => return usage(),
     };
     match result {

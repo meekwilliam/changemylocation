@@ -22,6 +22,22 @@ const picked = {};
 const DRAFT = "";
 const marker = L.marker([0, 0]);
 
+// route mode, the two ends, which one the next click fills in, and the planned route from the app
+let mode = "spot";
+let from = null;
+let to = null;
+let editing = "from";
+let travel = "walk";
+let route = null;
+let routing = false;
+let routeProblem = "";
+const routeLine = L.polyline([], { color: "#0a84ff", weight: 6, opacity: 0.85 });
+const endStyle = (fill) => ({ radius: 8, color: "#ffffff", weight: 3, fillColor: fill, fillOpacity: 1 });
+const fromMarker = L.circleMarker([0, 0], endStyle("#1f9d55"));
+const toMarker = L.circleMarker([0, 0], endStyle("#e5484d"));
+// metres a second, for when the route doesn't come with a travel time
+const USUAL_SPEED = { walk: 1.4, drive: 13 };
+
 const api = () => window.bridge;
 const phone = () => phones.find((p) => p.udid === selectedId);
 const key = () => phone()?.udid ?? DRAFT;
@@ -57,8 +73,119 @@ function render() {
   $("reset").disabled = busy || !p;
   $("devmode").hidden = !(p && p.developerMode === false);
   $("set").textContent = busy ? "Working…" : "Set Location";
-  if (spot) marker.setLatLng([spot.lat, spot.lon]).addTo(map);
+  if (spot && mode === "spot") marker.setLatLng([spot.lat, spot.lon]).addTo(map);
   else marker.remove();
+  renderRoute(p);
+}
+
+function renderRoute(p) {
+  const on = mode === "route";
+  for (const b of $("modes").children) b.classList.toggle("on", b.dataset.mode === mode);
+  for (const b of $("travel").children) b.classList.toggle("on", b.dataset.travel === travel);
+  $("spot-view").hidden = on;
+  $("route-view").hidden = !on;
+  for (const b of document.querySelectorAll(".end")) b.classList.toggle("on", b.dataset.end === editing);
+  for (const [which, end, name] of [["from", from, "from-name"], ["to", to, "to-name"]]) {
+    const active = which === editing;
+    $(name).textContent = end ? end.name : active ? "Click the map or search" : "Not set";
+    $(name).classList.toggle("unset", !end);
+  }
+  const info = $("route-info");
+  info.classList.toggle("problem", !!routeProblem);
+  info.textContent = routing ? "Finding a route…"
+    : routeProblem ? routeProblem
+    : route ? `${distanceText(route.distance)} · ${timeText(route.duration)} ${travel === "walk" ? "walking" : "driving"}`
+    : "Click the map or search to pick each end.";
+  $("go").disabled = busy || routing || !p || !route;
+  $("go").textContent = busy ? "Working…" : "▶ Start Route";
+  $("route-reset").disabled = busy || !p;
+  if (on && route) routeLine.setLatLngs(route.points).addTo(map);
+  else routeLine.remove();
+  if (on && from) fromMarker.setLatLng([from.lat, from.lon]).addTo(map);
+  else fromMarker.remove();
+  if (on && to) toMarker.setLatLng([to.lat, to.lon]).addTo(map);
+  else toMarker.remove();
+}
+
+function distanceText(metres) {
+  if (navigator.language === "en-US") return `${(metres / 1609.34).toFixed(1)} mi`;
+  return metres < 1000 ? `${Math.round(metres)} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+
+function timeText(seconds) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} hr ${minutes % 60} min` : `${minutes} min`;
+}
+
+function setMode(next) {
+  mode = next;
+  $("results").hidden = true;
+  // start the route from the spot already picked for this phone, so the next click picks the destination
+  if (mode === "route" && !from && picked[key()]) {
+    from = { ...picked[key()] };
+    editing = "to";
+  }
+  render();
+}
+
+async function pickEnd(lat, lon, name, subtitle) {
+  const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
+  if (editing === "from") {
+    from = spot;
+    editing = "to";
+  } else {
+    to = spot;
+  }
+  plan();
+  if (!name) {
+    const d = await api().describe(lat, lon);
+    if (from === spot || to === spot) {
+      Object.assign(spot, d);
+      render();
+    }
+  }
+}
+
+async function plan() {
+  route = null;
+  routeProblem = "";
+  if (!from || !to) return render();
+  const want = { from, to, travel };
+  const stale = () => from !== want.from || to !== want.to || travel !== want.travel;
+  routing = true;
+  render();
+  try {
+    const found = await api().plan_route([from.lat, from.lon], [to.lat, to.lon], travel);
+    if (stale()) return;
+    route = found;
+    // a window that was hidden or resized can leave leaflet with a stale size, which zooms all the way in
+    map.invalidateSize();
+    map.fitBounds(L.latLngBounds(found.points), { paddingTopLeft: [440, 120], paddingBottomRight: [60, 60] });
+  } catch (e) {
+    if (!stale()) routeProblem = String(e);
+  } finally {
+    if (!stale()) {
+      routing = false;
+      render();
+    }
+  }
+}
+
+async function startRoute() {
+  const p = phone();
+  if (!p || !route) return;
+  const speed = route.duration > 0 && route.distance > 0 ? route.distance / route.duration : USUAL_SPEED[travel];
+  const end = to;
+  const arrival = new Date(Date.now() + (route.distance / speed) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  await act(async () => {
+    const r = await api().start_route(p.udid, route.points, speed, end.name);
+    if (r.ok) {
+      picked[p.udid] = { ...end };
+      r.message = `On the way. The iPhone moves on its own and gets there around ${arrival}, then stays until Reset or a restart.`;
+    }
+    return r;
+  });
 }
 
 function select(udid) {
@@ -77,6 +204,7 @@ function goTo(lat, lon, name, subtitle) {
 }
 
 async function pick(lat, lon, name, subtitle) {
+  if (mode === "route") return pickEnd(lat, lon, name, subtitle);
   const k = key();
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
   picked[k] = spot;
@@ -150,10 +278,16 @@ menu.onclick = async (e) => {
   if (!action || !menuAt) return;
   hideMenu();
   const { lat, lng } = menuAt;
+  if (action === "set" || action === "pin") setMode("spot");
   if (action === "set") { pick(lat, lng); await setLocation(); }
   if (action === "pin") pick(lat, lng);
   if (action === "copy") copy(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
   if (action === "reset") await resetLocation();
+  if (action === "from" || action === "to") {
+    mode = "route";
+    editing = action;
+    pick(lat, lng);
+  }
 };
 
 function copy(text) {
@@ -212,6 +346,14 @@ async function resetLocation() {
 
 $("set").onclick = setLocation;
 $("reset").onclick = resetLocation;
+$("go").onclick = startRoute;
+$("route-reset").onclick = resetLocation;
+$("modes").onclick = (e) => { const m = e.target.closest("button")?.dataset.mode; if (m) setMode(m); };
+$("travel").onclick = (e) => {
+  const t = e.target.closest("button")?.dataset.travel;
+  if (t && t !== travel) { travel = t; plan(); }
+};
+for (const b of document.querySelectorAll(".end")) b.onclick = () => { editing = b.dataset.end; render(); };
 
 async function checkForUpdate() {
   const u = await api().update();

@@ -44,6 +44,28 @@ extension CLLocationCoordinate2D {
     }
 }
 
+extension MKMultiPoint {
+    var coordinateList: [CLLocationCoordinate2D] {
+        var list = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: pointCount)
+        getCoordinates(&list, range: NSRange(location: 0, length: pointCount))
+        return list
+    }
+}
+
+enum Mode: Hashable { case spot, route }
+
+enum Travel: Hashable {
+    case walk, drive
+
+    var icon: String { self == .walk ? "figure.walk" : "car.fill" }
+    var verb: String { self == .walk ? "walking" : "driving" }
+    var transport: MKDirectionsTransportType { self == .walk ? .walking : .automobile }
+    /// used when apple's directions don't give a travel time, metres a second
+    var usualSpeed: Double { self == .walk ? 1.4 : 13 }
+}
+
+enum End { case from, to }
+
 // MARK: - manager
 
 /// the iphones the engine can reach, plus any phone still holding a location this app set
@@ -156,6 +178,23 @@ final class Phone: Identifiable {
         }
     }
 
+    /// hands the phone a route, it travels it on its own and stays at the end, like a set location
+    func travel(_ points: [CLLocationCoordinate2D], speed: Double, seconds: TimeInterval, to end: CLLocationCoordinate2D) async {
+        busy = true
+        defer { busy = false }
+        note("Start Route pressed (\(points.count) points, \(String(format: "%.1f", speed)) m/s, to \(end.text(5)))")
+        let r = await Engine.run(["route", id, "\(speed)"] + points.map { "\($0.latitude),\($0.longitude)" })
+        if r.ok {
+            held = end
+            let arrival = Date().addingTimeInterval(seconds).formatted(date: .omitted, time: .shortened)
+            note("route handed to the phone; it moves on its own")
+            show("On the way. The iPhone moves on its own and gets there around \(arrival), then stays until Reset or a restart.", error: false)
+        } else {
+            note("couldn't start the route: \(lastLine(r.messages))")
+            show("Couldn't start \(name)'s route: \(lastLine(r.messages))", error: true)
+        }
+    }
+
     func clear() async {
         busy = true
         defer { busy = false }
@@ -230,6 +269,15 @@ struct ContentView: View {
     /// last pointer position over the map, used as the right-click spot
     @State private var pointer: CGPoint?
     @FocusState private var searchFocused: Bool
+    @State private var mode: Mode = .spot
+    @State private var from: Place?
+    @State private var to: Place?
+    /// which end of the route the next map click or search fills in
+    @State private var editing: End = .from
+    @State private var travel: Travel = .walk
+    @State private var route: MKRoute?
+    @State private var routing = false
+    @State private var routeProblem: String?
 
     private var phone: Phone? { manager.selectedPhone }
     private var current: Place? { phone?.selected ?? draft }
@@ -238,14 +286,26 @@ struct ContentView: View {
         ZStack {
             MapReader { proxy in
                 Map(position: $camera) {
-                    ForEach(manager.phones) { p in
-                        if let place = p.selected {
-                            Marker(p.name, systemImage: p.holding ? "location.fill" : "mappin", coordinate: place.coordinate)
-                                .tint(p.id == manager.selectedID ? .blue : .gray)
+                    if mode == .route {
+                        if let route {
+                            MapPolyline(route.polyline).stroke(.blue, lineWidth: 6)
                         }
-                    }
-                    if phone == nil, let draft {
-                        Marker(draft.name, systemImage: "mappin", coordinate: draft.coordinate).tint(.blue)
+                        if let from {
+                            Marker("Start", systemImage: travel.icon, coordinate: from.coordinate).tint(.green)
+                        }
+                        if let to {
+                            Marker("Destination", systemImage: "flag.fill", coordinate: to.coordinate).tint(.red)
+                        }
+                    } else {
+                        ForEach(manager.phones) { p in
+                            if let place = p.selected {
+                                Marker(p.name, systemImage: p.holding ? "location.fill" : "mappin", coordinate: place.coordinate)
+                                    .tint(p.id == manager.selectedID ? .blue : .gray)
+                            }
+                        }
+                        if phone == nil, let draft {
+                            Marker(draft.name, systemImage: "mappin", coordinate: draft.coordinate).tint(.blue)
+                        }
                     }
                 }
                 .mapStyle(.standard(elevation: .realistic))
@@ -260,6 +320,7 @@ struct ContentView: View {
                 .contextMenu {
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .spot
                         pick(c)
                         setLocation(c)
                     } label: {
@@ -268,10 +329,34 @@ struct ContentView: View {
                     .disabled(!canAct)
 
                     Button {
-                        if let c = pointerCoordinate(proxy) { pick(c) }
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .spot
+                        pick(c)
                     } label: {
                         Label("Drop Pin Here", systemImage: "mappin")
                     }
+
+                    Divider()
+
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .route
+                        editing = .from
+                        pick(c)
+                    } label: {
+                        Label("Route From Here", systemImage: "circle.circle")
+                    }
+
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .route
+                        editing = .to
+                        pick(c)
+                    } label: {
+                        Label("Route To Here", systemImage: "flag")
+                    }
+
+                    Divider()
 
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
@@ -309,8 +394,17 @@ struct ContentView: View {
         }
         .onChange(of: manager.selectedID) {
             results = []
-            if let place = current { fly(to: place.coordinate) }
+            if mode == .spot, let place = current { fly(to: place.coordinate) }
         }
+        .onChange(of: mode) {
+            results = []
+            // start the route from wherever the phone is set to, so the next click picks the destination
+            if mode == .route && from == nil, let current {
+                from = current
+                editing = .to
+            }
+        }
+        .onChange(of: travel) { Task { await planRoute() } }
     }
 
     // MARK: tabs
@@ -428,7 +522,7 @@ struct ContentView: View {
         GlassEffectContainer(spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 statusPill
-                locationCard
+                if mode == .spot { locationCard } else { routeCard }
 
                 if let phone, !phone.message.isEmpty {
                     pill(phone.message,
@@ -463,8 +557,18 @@ struct ContentView: View {
         .glassEffect(.regular, in: .capsule)
     }
 
+    private var modePicker: some View {
+        Picker("Mode", selection: $mode) {
+            Label("Spot", systemImage: "mappin").tag(Mode.spot)
+            Label("Route", systemImage: "point.topleft.down.to.point.bottomright.curvepath").tag(Mode.route)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
     private var locationCard: some View {
         VStack(alignment: .leading, spacing: 18) {
+            modePicker
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
                     Circle().fill(.blue.gradient)
@@ -537,6 +641,109 @@ struct ContentView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
 
+    private var routeCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            modePicker
+
+            VStack(spacing: 6) {
+                endRow(.from)
+                endRow(.to)
+            }
+
+            Picker("Travel", selection: $travel) {
+                Label("Walk", systemImage: Travel.walk.icon).tag(Travel.walk)
+                Label("Drive", systemImage: Travel.drive.icon).tag(Travel.drive)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Group {
+                if routing {
+                    Label("Finding a route…", systemImage: "hourglass")
+                } else if let routeProblem {
+                    Label(routeProblem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                } else if let route {
+                    Label(summary(route), systemImage: travel.icon)
+                } else {
+                    Label("Click the map or search to pick each end.", systemImage: "hand.point.up.left")
+                }
+            }
+            .font(.system(size: 13, design: .rounded))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+
+            HStack(spacing: 10) {
+                Button(action: startRoute) {
+                    HStack(spacing: 8) {
+                        if phone?.busy == true {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "play.fill")
+                        }
+                        Text("Start Route")
+                    }
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(.blue)
+                .disabled(route == nil || routing || !canAct)
+
+                Button(action: reset) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .help("Stop and reset to real GPS")
+                .disabled(!canAct)
+            }
+        }
+        .padding(18)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+    }
+
+    private func endRow(_ end: End) -> some View {
+        let place = end == .from ? from : to
+        let active = editing == end
+        return Button { editing = end } label: {
+            HStack(spacing: 12) {
+                Image(systemName: end == .from ? "circle.circle.fill" : "flag.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(end == .from ? .green : .red)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(end == .from ? "From" : "To")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Text(place?.name ?? (active ? "Click the map or search" : "Not set"))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(place == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(active ? Color.blue.opacity(0.15) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(active ? Color.blue.opacity(0.6) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func summary(_ route: MKRoute) -> String {
+        let distance = Measurement(value: route.distance, unit: UnitLength.meters)
+            .formatted(.measurement(width: .abbreviated, usage: .road))
+        let time = Duration.seconds(route.expectedTravelTime)
+            .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+        return "\(distance) · \(time) \(travel.verb)"
+    }
+
     private func pill(_ text: String, icon: String, color: Color) -> some View {
         Label(text, systemImage: icon)
             .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -570,6 +777,61 @@ struct ContentView: View {
         if let phone { phone.selected = place } else { draft = place }
     }
 
+    /// a picked or searched place goes to the spot, or to the end of the route being edited
+    private func put(_ place: Place) {
+        guard mode == .route else { return setCurrent(place) }
+        if editing == .from {
+            from = place
+            editing = .to
+        } else {
+            to = place
+        }
+        Task { await planRoute() }
+    }
+
+    /// swaps in a place's looked-up name wherever it's still in use
+    private func rename(_ old: Place, to new: Place) {
+        if from == old { from = new }
+        else if to == old { to = new }
+        else if current == old { setCurrent(new) }
+    }
+
+    private func planRoute() async {
+        route = nil
+        routeProblem = nil
+        guard let from, let to else { return }
+        let wanted = (from.id, to.id, travel)
+        routing = true
+        defer { routing = false }
+        let request = MKDirections.Request()
+        request.source = MKMapItem(location: CLLocation(latitude: from.coordinate.latitude, longitude: from.coordinate.longitude), address: nil)
+        request.destination = MKMapItem(location: CLLocation(latitude: to.coordinate.latitude, longitude: to.coordinate.longitude), address: nil)
+        request.transportType = travel.transport
+        let found = try? await MKDirections(request: request).calculate().routes.first
+        // the ends or the travel mode changed while apple was working it out
+        guard self.from?.id == wanted.0, self.to?.id == wanted.1, travel == wanted.2 else { return }
+        guard let found else {
+            routeProblem = "Couldn't find a \(travel.verb) route between those places."
+            return
+        }
+        route = found
+        let box = found.polyline.boundingMapRect
+        withAnimation(.easeInOut(duration: 0.8)) {
+            camera = .rect(box.insetBy(dx: -box.width * 0.25 - 400, dy: -box.height * 0.25 - 400))
+        }
+    }
+
+    private func startRoute() {
+        guard let phone, let route, let to else { return }
+        let time = route.expectedTravelTime
+        let speed = time > 0 && route.distance > 0 ? route.distance / time : travel.usualSpeed
+        let points = route.polyline.coordinateList
+        Task {
+            await phone.travel(points, speed: speed, seconds: route.distance / speed, to: to.coordinate)
+            if !phone.messageIsError { phone.selected = to }
+        }
+    }
+
     private func fly(to c: CLLocationCoordinate2D) {
         withAnimation(.easeInOut(duration: 0.8)) {
             camera = .region(MKCoordinateRegion(center: c, span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)))
@@ -596,7 +858,7 @@ struct ContentView: View {
     }
 
     private func choose(_ place: Place) {
-        setCurrent(place)
+        put(place)
         results = []
         searchFocused = false
         fly(to: place.coordinate)
@@ -605,12 +867,11 @@ struct ContentView: View {
     /// selects a raw coordinate and fills in its address in the background
     private func pick(_ c: CLLocationCoordinate2D) {
         let place = Place(name: "Dropped Pin", subtitle: "", coordinate: c)
-        setCurrent(place)
+        put(place)
         Task {
             guard let request = MKReverseGeocodingRequest(location: CLLocation(latitude: c.latitude, longitude: c.longitude)),
-                  let item = try? await request.mapItems.first,
-                  current == place else { return }
-            setCurrent(Place(name: item.name ?? "Dropped Pin", subtitle: describe(item), coordinate: c))
+                  let item = try? await request.mapItems.first else { return }
+            rename(place, to: Place(name: item.name ?? "Dropped Pin", subtitle: describe(item), coordinate: c))
         }
     }
 }

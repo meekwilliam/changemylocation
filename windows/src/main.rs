@@ -27,6 +27,16 @@ struct Reply {
 }
 
 #[derive(Serialize)]
+struct Route {
+    /// lat, lon pairs along the road or path
+    points: Vec<[f64; 2]>,
+    /// metres
+    distance: f64,
+    /// seconds
+    duration: f64,
+}
+
+#[derive(Serialize)]
 struct Update {
     version: String,
     url: String,
@@ -89,6 +99,52 @@ async fn clear(udid: String) -> Reply {
         Err(e) => {
             log(&format!("[{}] reset failed: {e}", short(&udid)));
             Reply { ok: false, message: format!("Couldn't reach the iPhone to reset it: {e}") }
+        }
+    }
+}
+
+/// a walking or driving route from openstreetmap's routing servers, the mac app gets its routes from apple instead
+#[tauri::command]
+async fn plan_route(from: [f64; 2], to: [f64; 2], travel: String) -> Result<Route, String> {
+    let (profile, verb) = if travel == "drive" { ("routed-car", "driving") } else { ("routed-foot", "walking") };
+    let none = || format!("Couldn't find a {verb} route between those places.");
+    let url = format!(
+        "https://routing.openstreetmap.de/{profile}/route/v1/driving/{},{};{},{}?overview=full&geometries=geojson",
+        from[1], from[0], to[1], to[0]
+    );
+    let found = get_json(&url).await.ok_or_else(none)?;
+    let route = &found["routes"][0];
+    let points: Vec<[f64; 2]> = route["geometry"]["coordinates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| Some([p[1].as_f64()?, p[0].as_f64()?]))
+        .collect();
+    if points.len() < 2 {
+        return Err(none());
+    }
+    Ok(Route {
+        points,
+        distance: route["distance"].as_f64().unwrap_or(0.0),
+        duration: route["duration"].as_f64().unwrap_or(0.0),
+    })
+}
+
+#[tauri::command]
+async fn start_route(udid: String, points: Vec<[f64; 2]>, speed: f64, name: Option<String>) -> Reply {
+    log(&format!("[{}] Start Route pressed ({} points, {speed:.1} m/s)", short(&udid), points.len()));
+    let waypoints: Vec<(f64, f64)> = points.iter().map(|p| (p[0], p[1])).collect();
+    match within_a_minute(engine::play_route(&udid, &waypoints, speed)).await {
+        Ok(()) => {
+            let [lat, lon] = points[points.len() - 1];
+            edit_state(|state| {
+                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": name.unwrap_or_default() }));
+            });
+            Reply { ok: true, message: "On the way. The iPhone moves on its own and stays at the end until Reset or a restart.".into() }
+        }
+        Err(e) => {
+            log(&format!("[{}] route failed: {e}", short(&udid)));
+            Reply { ok: false, message: e.to_string() }
         }
     }
 }
@@ -260,6 +316,8 @@ fn main() {
             phones,
             set,
             clear,
+            plan_route,
+            start_route,
             reveal_developer_mode,
             search,
             describe,

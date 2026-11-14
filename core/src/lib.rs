@@ -26,6 +26,7 @@ pub use idevice::http;
 const FEATURE: &str = "com.apple.coredevice.feature.simulatelocation";
 const SET: &str = "com.apple.coredevice.action.setsimulatedlocation";
 const CLEAR: &str = "com.apple.coredevice.action.clearsimulatedlocation";
+const ROUTE: &str = "com.apple.coredevice.action.startlocationsimulation";
 
 /// apple's personalized developer disk image, the same files xcode ships, mirrored on github
 const DDI_URL: &str =
@@ -123,6 +124,64 @@ pub async fn set_location(udid: &str, latitude: f64, longitude: f64) -> Result<(
     input.insert("latitude".into(), plist::Value::Real(latitude));
     input.insert("longitude".into(), plist::Value::Real(longitude));
     invoke(&provider, SET, input).await
+}
+
+/// hands the phone a route to travel at `speed` metres a second, the phone moves along it on its own and stays at
+/// the last point when it gets there, until reset or a restart
+pub async fn play_route(udid: &str, waypoints: &[(f64, f64)], speed: f64) -> Result<()> {
+    if waypoints.len() < 2 || !(speed > 0.0) {
+        return Err(Error::Other("A route needs a start, an end and a speed.".into()));
+    }
+    let provider = provider(udid).await?;
+    let points = thin(waypoints)
+        .iter()
+        .map(|&(latitude, longitude)| {
+            let mut point = plist::Dictionary::new();
+            point.insert("latitude".into(), plist::Value::Real(latitude));
+            point.insert("longitude".into(), plist::Value::Real(longitude));
+            plist::Value::Dictionary(point)
+        })
+        .collect();
+    let mut distance = plist::Dictionary::new();
+    distance.insert("_0".into(), plist::Value::Real(ROUTE_STEP_METRES));
+    let mut pacing = plist::Dictionary::new();
+    pacing.insert("distance".into(), plist::Value::Dictionary(distance));
+    let mut input = plist::Dictionary::new();
+    input.insert("waypoints".into(), plist::Value::Array(points));
+    input.insert("speed".into(), plist::Value::Real(speed));
+    input.insert("pacing".into(), plist::Value::Dictionary(pacing));
+    invoke(&provider, ROUTE, input).await
+}
+
+const ROUTE_STEP_METRES: f64 = 5.0;
+const MAX_ROUTE_POINTS: usize = 1500;
+
+/// drops points closer together than a few metres, and evenly thins very long routes, the phone only needs the turns
+fn thin(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut kept = vec![points[0]];
+    for &p in &points[1..points.len() - 1] {
+        if metres(*kept.last().unwrap(), p) >= 3.0 {
+            kept.push(p);
+        }
+    }
+    kept.push(points[points.len() - 1]);
+    if kept.len() > MAX_ROUTE_POINTS {
+        let step = kept.len().div_ceil(MAX_ROUTE_POINTS);
+        let last = kept[kept.len() - 1];
+        kept = kept.into_iter().step_by(step).collect();
+        if kept.last() != Some(&last) {
+            kept.push(last);
+        }
+    }
+    kept
+}
+
+fn metres(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
+    let dlat = lat2 - lat1;
+    let dlon = (b.1 - a.1).to_radians();
+    let h = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    2.0 * 6_371_000.0 * h.sqrt().asin()
 }
 
 /// makes the developer mode switch appear in the phone's settings › privacy & security, ios hides it until a

@@ -22,14 +22,33 @@
   <button id="update" class="pill" hidden></button>
   <div id="status" class="pill"><span id="status-text">Looking for iPhones…</span></div>
   <div id="card">
-    <div id="place">
-      <div id="place-name">No location selected</div>
-      <div id="place-sub">Click the map or search above.</div>
-      <div id="place-coord"></div>
+    <div id="modes" class="seg">
+      <button data-mode="spot" class="on">📍 Spot</button>
+      <button data-mode="route">🧭 Route</button>
     </div>
-    <div id="buttons">
-      <button id="set" disabled>Set Location</button>
-      <button id="reset" title="Reset to the real location" disabled>↺</button>
+    <div id="spot-view">
+      <div id="place">
+        <div id="place-name">No location selected</div>
+        <div id="place-sub">Click the map or search above.</div>
+        <div id="place-coord"></div>
+      </div>
+      <div class="buttons">
+        <button id="set" class="primary" disabled>Set Location</button>
+        <button id="reset" class="reset" title="Reset to the real location" disabled>↺</button>
+      </div>
+    </div>
+    <div id="route-view" hidden>
+      <button class="end" data-end="from"><span class="dot from"></span><span class="end-text"><small>From</small><b id="from-name">Not set</b></span></button>
+      <button class="end" data-end="to"><span class="dot to"></span><span class="end-text"><small>To</small><b id="to-name">Not set</b></span></button>
+      <div id="travel" class="seg">
+        <button data-travel="walk" class="on">🚶 Walk</button>
+        <button data-travel="drive">🚗 Drive</button>
+      </div>
+      <div id="route-info"></div>
+      <div class="buttons">
+        <button id="go" class="primary" disabled>▶ Start Route</button>
+        <button id="route-reset" class="reset" title="Stop and reset to the real location" disabled>↺</button>
+      </div>
     </div>
   </div>
   <div id="message" class="pill" hidden></div>
@@ -40,6 +59,9 @@
   <button data-action="set">Set Location Here</button>
   <button data-action="pin">Drop Pin Here</button>
   <button data-action="copy">Copy Coordinates</button>
+  <hr>
+  <button data-action="from">Route From Here</button>
+  <button data-action="to">Route To Here</button>
   <hr>
   <button data-action="reset">Reset to Real GPS</button>
 </div>
