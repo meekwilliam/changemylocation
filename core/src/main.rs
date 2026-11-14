@@ -55,7 +55,7 @@ async fn main() -> ExitCode {
                     // the app draws the phone moving along these
                     println!("{WANDER_SPEED}");
                     for (lat, lon) in points {
-                        println!("{lat},{lon}");
+                        println!("{lat:.6},{lon:.6}");
                     }
                 }
                 result

@@ -119,7 +119,8 @@ function moveDots() {
 
 // no pin once the phone is set there or wandering around it, its dot shows the spot
 function resting(p, spot) {
-  return p?.last && p.last.lat === spot.lat && p.last.lon === spot.lon;
+  // a hair of slack, the spot goes through json twice on its way back and can come back a last digit off
+  return p?.last && Math.abs(p.last.lat - spot.lat) < 1e-9 && Math.abs(p.last.lon - spot.lon) < 1e-9;
 }
 
 function render() {
@@ -264,7 +265,9 @@ async function startRoute() {
   await act(async () => {
     const r = await api().start_route(p.udid, route.points, speed, end.name);
     if (r.ok) {
-      picked[p.udid] = { ...end };
+      // the route ends where the road does, a little off the clicked spot
+      const [lat, lon] = route.points[route.points.length - 1];
+      picked[p.udid] = { ...end, lat, lon };
       r.message = `On the way, arriving around ${arrival}`;
     }
     return r;
@@ -364,8 +367,9 @@ menu.onclick = async (e) => {
   hideMenu();
   const { lat, lng } = menuAt;
   if (action === "set" || action === "pin") setMode("spot");
-  if (action === "wander") { setMode("wander"); pick(lat, lng); await wanderAround(); }
-  if (action === "set") { pick(lat, lng); await setLocation(); }
+  // wait for the place's name so it's saved with the spot, not "Dropped pin"
+  if (action === "wander") { setMode("wander"); await pick(lat, lng); await wanderAround(); }
+  if (action === "set") { await pick(lat, lng); await setLocation(); }
   if (action === "pin") pick(lat, lng);
   if (action === "copy") copy(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
   if (action === "reset") await resetLocation();

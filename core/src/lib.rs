@@ -129,8 +129,11 @@ pub async fn set_location(udid: &str, latitude: f64, longitude: f64) -> Result<(
 /// hands the phone a route to travel at `speed` metres a second, the phone moves along it on its own and stays at
 /// the last point when it gets there, until reset or a restart
 pub async fn play_route(udid: &str, waypoints: &[(f64, f64)], speed: f64) -> Result<()> {
-    if waypoints.len() < 2 || speed.is_nan() || speed <= 0.0 {
+    if waypoints.len() < 2 || !speed.is_finite() || speed <= 0.0 {
         return Err(Error::Other("A route needs a start, an end and a speed.".into()));
+    }
+    if !waypoints.iter().all(|&(lat, lon)| lat.abs() <= 90.0 && lon.abs() <= 180.0) {
+        return Err(Error::Other("A route point is off the map.".into()));
     }
     let provider = provider(udid).await?;
     let points = thin(waypoints)
@@ -166,7 +169,8 @@ fn thin(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     }
     kept.push(points[points.len() - 1]);
     if kept.len() > MAX_ROUTE_POINTS {
-        let step = kept.len().div_ceil(MAX_ROUTE_POINTS);
+        // the last point goes back on after, so leave room for it
+        let step = (kept.len() - 1).div_ceil(MAX_ROUTE_POINTS - 1);
         let last = kept[kept.len() - 1];
         kept = kept.into_iter().step_by(step).collect();
         if kept.last() != Some(&last) {
@@ -202,7 +206,9 @@ pub fn wander_route(latitude: f64, longitude: f64) -> Vec<(f64, f64)> {
             (nx, ny) = (x + step * heading.cos(), y + step * heading.sin());
         }
         (x, y) = (nx, ny);
-        points.push((latitude + y / metres_per_degree_lat, longitude + x / metres_per_degree_lon));
+        // wrap round the date line and stop at the poles so every point stays on the map
+        let lon = (longitude + x / metres_per_degree_lon + 540.0).rem_euclid(360.0) - 180.0;
+        points.push(((latitude + y / metres_per_degree_lat).clamp(-90.0, 90.0), lon));
     }
     points
 }

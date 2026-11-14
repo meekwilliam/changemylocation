@@ -16,20 +16,28 @@ enum Engine {
     /// runs the engine, returns whether it worked, its output and its messages, errors and progress
     static func run(_ arguments: [String]) async -> (ok: Bool, output: String, messages: String) {
         await withCheckedContinuation { cont in
-            let p = Process()
-            p.executableURL = url
-            p.arguments = arguments
-            let out = Pipe(), err = Pipe()
-            p.standardOutput = out
-            p.standardError = err
-            p.terminationHandler = { proc in
-                let text = { (pipe: Pipe) in
-                    String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+            // read both pipes while it runs, a pipe holds about 64 kb and a full one stalls the engine for good
+            DispatchQueue.global().async {
+                let p = Process()
+                p.executableURL = url
+                p.arguments = arguments
+                let out = Pipe(), err = Pipe()
+                p.standardOutput = out
+                p.standardError = err
+                do { try p.run() } catch { return cont.resume(returning: (false, "", error.localizedDescription)) }
+                var messages = Data()
+                let reading = DispatchGroup()
+                reading.enter()
+                DispatchQueue.global().async {
+                    messages = err.fileHandleForReading.readDataToEndOfFile()
+                    reading.leave()
                 }
-                cont.resume(returning: (proc.terminationStatus == 0, text(out), text(err)))
+                let output = out.fileHandleForReading.readDataToEndOfFile()
+                reading.wait()
+                p.waitUntilExit()
+                let text = { (data: Data) in String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
+                cont.resume(returning: (p.terminationStatus == 0, text(output), text(messages)))
             }
-            do { try p.run() } catch { cont.resume(returning: (false, "", error.localizedDescription)) }
         }
     }
 }
@@ -424,6 +432,7 @@ struct ContentView: View {
     @State private var routing = false
     @State private var routeProblem: String?
     @State private var now = Date()
+    @State private var routeRequest = 0
     @State private var mac = Here()
 
     private var phone: Phone? { manager.selectedPhone }
@@ -581,6 +590,7 @@ struct ContentView: View {
             if mode == .route && from == nil, let current {
                 from = current
                 editing = .to
+                Task { await planRoute() }
             }
         }
         .onChange(of: travel) { Task { await planRoute() } }
@@ -1013,9 +1023,10 @@ struct ContentView: View {
 
     /// swaps in a place's looked-up name wherever it's still in use
     private func rename(_ old: Place, to new: Place) {
+        // the same place can be the spot and an end of the route at once
         if from == old { from = new }
-        else if to == old { to = new }
-        else if current == old { setCurrent(new) }
+        if to == old { to = new }
+        if current == old { setCurrent(new) }
     }
 
     private func planRoute() async {
@@ -1023,8 +1034,11 @@ struct ContentView: View {
         routeProblem = nil
         guard let from, let to else { return }
         let wanted = (from.coordinate, to.coordinate, travel)
+        routeRequest += 1
+        let ticket = routeRequest
         routing = true
-        defer { routing = false }
+        // only the latest request clears it, an older one can finish while a newer one is still working
+        defer { if routeRequest == ticket { routing = false } }
         let request = MKDirections.Request()
         request.source = MKMapItem(location: CLLocation(latitude: from.coordinate.latitude, longitude: from.coordinate.longitude), address: nil)
         request.destination = MKMapItem(location: CLLocation(latitude: to.coordinate.latitude, longitude: to.coordinate.longitude), address: nil)
