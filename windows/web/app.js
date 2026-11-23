@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 // leaflet guesses its image folder from the stylesheet, which can miss inside the app window
 L.Icon.Default.imagePath = "vendor/leaflet/images/";
-const map = L.map("map", { zoomControl: false }).setView([37.3349, -122.009], 13);
+const map = L.map("map", { zoomControl: false, worldCopyJump: true }).setView([37.3349, -122.009], 13);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
@@ -284,6 +284,7 @@ function select(udid) {
 
 // fly to a spot from search and pick it
 function goTo(lat, lon, name, subtitle) {
+  lon = L.latLng(lat, lon).wrap().lng;
   $("results").hidden = true;
   map.flyTo([lat, lon], 15);
   return pick(lat, lon, name, subtitle);
@@ -315,6 +316,7 @@ async function refresh() {
     phonesError = "";
     phones = found;
     for (const p of phones) {
+      if (p.last) p.last.lon = L.latLng(p.last.lat, p.last.lon).wrap().lng;
       // a remembered spot is ready to set again in one click, like after the iphone restarted
       if (p.last && !picked[p.udid]) picked[p.udid] = { lat: p.last.lat, lon: p.last.lon, name: p.last.name || "Last location set", subtitle: "Last location set" };
     }
@@ -337,7 +339,11 @@ async function refresh() {
   render();
 }
 
-map.on("click", (e) => { hideMenu(); pick(e.latlng.lat, e.latlng.lng); });
+map.on("click", (e) => {
+  hideMenu();
+  const { lat, lng } = e.latlng.wrap();
+  pick(lat, lng);
+});
 
 // right-click menu, the same as the mac app's
 const menu = $("menu");
@@ -347,7 +353,7 @@ function hideMenu() { menu.hidden = true; }
 
 map.on("contextmenu", (e) => {
   e.originalEvent.preventDefault();
-  menuAt = e.latlng;
+  menuAt = e.latlng.wrap();
   const noPhone = busy || !phone();
   for (const action of ["set", "wander", "reset"]) menu.querySelector(`[data-action="${action}"]`).disabled = noPhone;
   menu.hidden = false;
