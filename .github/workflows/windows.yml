@@ -10,6 +10,10 @@ on:
   workflow_dispatch:
   workflow_call:  # from release.yml
 
+# it only reads the code and hands the exe on as an artifact, release.yml does the uploading and signing
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
