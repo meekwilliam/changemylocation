@@ -301,3 +301,19 @@ button:disabled { opacity: 0.4; cursor: default; }
   font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .secondary:hover { background: var(--hover); }
+
+/* typing a place straight into a route stop */
+div.end { cursor: text; }
+.stop-input {
+  width: 100%; min-width: 0; border: 0; padding: 0; background: none; outline: none;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--text);
+}
+.stop-input::placeholder { color: var(--faint); font-weight: 500; }
+#stop-results[hidden] { display: none; }
+#stop-results { list-style: none; margin: 0 0 6px; padding: 4px; border-radius: 16px; background: var(--track); }
+#stop-results li { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 12px; cursor: pointer; }
+#stop-results li:hover { background: var(--hover); }
+#stop-results .result-pin { width: 20px; height: 20px; color: #fff; background: var(--red); border-radius: 50%; padding: 4px; stroke-width: 2.4; }
+#stop-results .result-text { min-width: 0; }
+#stop-results .result-name { font-weight: 600; font-size: 13px; }
+#stop-results .sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

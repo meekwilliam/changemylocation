@@ -509,6 +509,11 @@ struct ContentView: View {
     @State private var now = Date()
     @State private var routeRequest = 0
     @State private var mac = Here()
+    /// what's typed into the stop being edited, and the places it found
+    @State private var stopQuery = ""
+    @State private var stopResults: [Place] = []
+    @State private var stopSearching = false
+    @FocusState private var stopFocused: Bool
     @AppStorage("askedForStar") private var askedForStar = false
     @State private var askingForStar = false
 
@@ -680,6 +685,10 @@ struct ContentView: View {
                 try? await Task.sleep(for: .seconds(1))
                 now = Date()
             }
+        }
+        .onChange(of: editing) {
+            stopQuery = ""
+            stopResults = []
         }
         .onChange(of: manager.selectedID) {
             results = []
@@ -995,7 +1004,10 @@ struct ContentView: View {
     private var routeBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 4) {
-                ForEach(stops.indices, id: \.self) { i in stopRow(i) }
+                ForEach(stops.indices, id: \.self) { i in
+                    stopRow(i)
+                    if i == editing && !stopResults.isEmpty { stopResultList }
+                }
                 Button(action: addStop) {
                     Label("Add Stop", systemImage: "plus.circle.fill")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -1069,42 +1081,84 @@ struct ContentView: View {
         let place = stops[i]
         let active = editing == i
         let first = i == 0, last = i == stops.count - 1
-        return Button { editing = i } label: {
-            HStack(spacing: 12) {
-                Group {
-                    if first || last {
-                        Image(systemName: first ? "circle.circle.fill" : "flag.circle.fill")
-                            .foregroundStyle(first ? .green : .red)
-                    } else {
-                        Image(systemName: "\(i).circle.fill").foregroundStyle(.orange)
-                    }
+        return HStack(spacing: 12) {
+            Group {
+                if first || last {
+                    Image(systemName: first ? "circle.circle.fill" : "flag.circle.fill")
+                        .foregroundStyle(first ? .green : .red)
+                } else {
+                    Image(systemName: "\(i).circle.fill").foregroundStyle(.orange)
                 }
-                .font(.system(size: 22))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(first ? "From" : last ? "To" : "Stop \(i)")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Text(place?.name ?? (active ? "Click the map or search" : "Not set"))
+            }
+            .font(.system(size: 22))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(first ? "From" : last ? "To" : "Stop \(i)")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                if active {
+                    // type a place right here, or click the map
+                    TextField(place?.name ?? "Type a place or click the map", text: $stopQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .focused($stopFocused)
+                        .onSubmit { Task { await searchStop() } }
+                } else {
+                    Text(place?.name ?? "Not set")
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(place == nil ? .secondary : .primary)
                         .lineLimit(1)
                 }
-                Spacer(minLength: 0)
-                if !first && !last {
-                    Button { removeStop(i) } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Remove this stop")
-                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(active ? Color.blue.opacity(0.15) : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(active ? Color.blue.opacity(0.6) : .clear))
-            .contentShape(Rectangle())
+            Spacer(minLength: 0)
+            if active && stopSearching {
+                ProgressView().controlSize(.small)
+            }
+            if !first && !last {
+                Button { removeStop(i) } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove this stop")
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(active ? Color.blue.opacity(0.15) : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(active ? Color.blue.opacity(0.6) : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            editing = i
+            stopFocused = true
+        }
+    }
+
+    /// places found for what was typed into a stop
+    private var stopResultList: some View {
+        VStack(spacing: 0) {
+            ForEach(stopResults) { found in
+                Button {
+                    put(found)
+                    fly(to: found.coordinate)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "mappin.circle.fill").foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(found.name).font(.system(size: 13, weight: .semibold))
+                            if !found.subtitle.isEmpty {
+                                Text(found.subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                        }
+                        .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.quaternary.opacity(0.5)))
     }
 
     /// a slider from a slow walk to a fast drive, spread out so the walking end isn't cramped
@@ -1216,6 +1270,8 @@ struct ContentView: View {
         guard mode == .route else { return setCurrent(place) }
         let i = min(editing, stops.count - 1)
         stops[i] = place
+        stopQuery = ""
+        stopResults = []
         // move on to the next empty stop, the last one stays picked so clicks keep moving the destination
         if let next = stops.indices.first(where: { stops[$0] == nil }) { editing = next } else { editing = i }
         Task { await planRoute() }
@@ -1322,6 +1378,36 @@ struct ContentView: View {
         let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
         results = items.prefix(6).map {
             Place(name: $0.name ?? text, subtitle: describe($0), coordinate: $0.location.coordinate)
+        }
+    }
+
+    /// what was typed into a stop, a "lat, lon" goes straight in, anything else is looked up
+    private func searchStop() async {
+        let text = stopQuery.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        if let c = parseCoordinate(text) {
+            pick(c)
+            fly(to: c)
+            return
+        }
+        let typed = editing
+        stopSearching = true
+        defer { stopSearching = false }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = text
+        let items = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+        // moved on to another stop while apple was looking
+        guard editing == typed, stopQuery.trimmingCharacters(in: .whitespaces) == text else { return }
+        let found = items.prefix(4).map {
+            Place(name: $0.name ?? text, subtitle: describe($0), coordinate: $0.location.coordinate)
+        }
+        // one clear answer goes straight in
+        if found.count == 1 {
+            put(found[0])
+            fly(to: found[0].coordinate)
+        } else {
+            stopResults = found
+            if found.isEmpty { routeProblem = "Couldn't find \"\(text)\"." }
         }
     }
 

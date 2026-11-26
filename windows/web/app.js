@@ -39,6 +39,10 @@ let travel = "walk";
 let route = null;
 let routing = false;
 let routeProblem = "";
+// what's typed into the stop being edited, the places it found, and the stops as last drawn
+let stopQuery = "";
+let stopResults = [];
+let stopsDrawn = "";
 // metres a second picked on the slider, null goes at the route's own pace
 let customSpeed = null;
 // the start and destination included, the routing server takes only so many
@@ -229,21 +233,38 @@ function renderRoute(p) {
   } else stopMarkers.remove();
 }
 
+// redrawn only when something about the stops changes, so typing into one isn't wiped by the regular refresh
 function renderStops() {
+  $("add-stop").disabled = stops.length >= MAX_STOPS || !stops[stops.length - 1];
+  const drawn = JSON.stringify([stops.map((s) => s && s.name), editing, stopResults]);
+  if (drawn === stopsDrawn) return;
+  stopsDrawn = drawn;
   const list = $("stops");
   list.innerHTML = "";
   stops.forEach((s, i) => {
     const first = i === 0, last = i === stops.length - 1;
-    const b = document.createElement("button");
+    const b = document.createElement("div");
     b.className = "end" + (i === editing ? " on" : "");
     b.innerHTML = (first ? '<svg class="icon from"><use href="#i-start"/></svg>'
       : last ? '<svg class="icon to"><use href="#i-flag"/></svg>'
       : `<span class="num">${i}</span>`)
-      + '<span class="end-text"><small></small><b></b></span>';
+      + '<span class="end-text"><small></small></span>';
     b.querySelector("small").textContent = first ? "From" : last ? "To" : `Stop ${i}`;
-    const name = b.querySelector("b");
-    name.textContent = s ? s.name : i === editing ? "Click the map or search" : "Not set";
-    name.classList.toggle("unset", !s);
+    if (i === editing) {
+      // type a place right here, or click the map
+      const input = document.createElement("input");
+      input.className = "stop-input";
+      input.placeholder = s ? s.name : "Type a place or click the map";
+      input.value = stopQuery;
+      input.oninput = () => { stopQuery = input.value; };
+      input.onkeydown = (e) => { if (e.key === "Enter") searchStop(); };
+      b.querySelector(".end-text").appendChild(input);
+    } else {
+      const name = document.createElement("b");
+      name.textContent = s ? s.name : "Not set";
+      name.classList.toggle("unset", !s);
+      b.querySelector(".end-text").appendChild(name);
+    }
     if (!first && !last) {
       const x = document.createElement("span");
       x.className = "remove";
@@ -252,10 +273,52 @@ function renderStops() {
       x.onclick = (e) => { e.stopPropagation(); removeStop(i); };
       b.appendChild(x);
     }
-    b.onclick = () => { editing = i; render(); };
+    b.onclick = () => {
+      if (editing !== i) {
+        editing = i;
+        stopQuery = "";
+        stopResults = [];
+        render();
+      }
+      list.querySelector(".stop-input")?.focus();
+    };
     list.appendChild(b);
+    if (i === editing) list.appendChild(stopResultList());
   });
-  $("add-stop").disabled = stops.length >= MAX_STOPS || !stops[stops.length - 1];
+}
+
+// places found for what was typed into a stop, shown right under it
+function stopResultList() {
+  const ul = document.createElement("ul");
+  if (stopResults.length) {
+    ul.id = "stop-results";
+    for (const r of stopResults) {
+      const li = document.createElement("li");
+      li.innerHTML = `<svg class="icon result-pin"><use href="#i-pin"/></svg><div class="result-text"><div class="result-name"></div><div class="sub"></div></div>`;
+      li.querySelector(".result-name").textContent = r.name;
+      li.querySelector(".sub").textContent = r.subtitle;
+      li.onclick = () => goTo(r.lat, r.lon, r.name, r.subtitle);
+      ul.appendChild(li);
+    }
+  } else ul.hidden = true;
+  return ul;
+}
+
+// what was typed into a stop, a "lat, lon" goes straight in, anything else is looked up
+async function searchStop() {
+  const q = stopQuery.trim();
+  if (!q) return;
+  const coord = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (coord) return goTo(parseFloat(coord[1]), parseFloat(coord[2]));
+  const typed = editing;
+  const found = await api().search(q);
+  // moved on to another stop while it was looking
+  if (editing !== typed || stopQuery.trim() !== q) return;
+  // one clear answer goes straight in
+  if (found.length === 1) return goTo(found[0].lat, found[0].lon, found[0].name, found[0].subtitle);
+  stopResults = found.slice(0, 4);
+  if (!found.length) routeProblem = `Couldn't find "${q}".`;
+  render();
 }
 
 // a new empty stop just before the destination, picked next
@@ -264,6 +327,8 @@ function addStop() {
   stops.splice(stops.length - 1, 0, null);
   editing = stops.length - 2;
   route = null;
+  // a route still being worked out is for the old stops, drop it
+  routing = false;
   render();
 }
 
@@ -301,6 +366,8 @@ async function pickStop(lat, lon, name, subtitle) {
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
   const i = Math.min(editing, stops.length - 1);
   stops[i] = spot;
+  stopQuery = "";
+  stopResults = [];
   // move on to the next empty stop, the last one stays picked so clicks keep moving the destination
   const next = stops.findIndex((s) => !s);
   editing = next >= 0 ? next : i;
