@@ -101,15 +101,17 @@ async fn clear(udid: String) -> Reply {
     }
 }
 
-/// a walking or driving route from openstreetmap's routing servers, the mac app gets its routes from apple instead
+/// a walking or driving route through each stop in turn from openstreetmap's routing servers, the mac app gets its
+/// routes from apple instead
 #[tauri::command]
-async fn plan_route(from: [f64; 2], to: [f64; 2], travel: String) -> Result<Route, String> {
+async fn plan_route(stops: Vec<[f64; 2]>, travel: String) -> Result<Route, String> {
     let (profile, verb) = if travel == "drive" { ("routed-car", "driving") } else { ("routed-foot", "walking") };
     let none = || format!("Couldn't find a {verb} route between those places.");
-    let url = format!(
-        "https://routing.openstreetmap.de/{profile}/route/v1/driving/{},{};{},{}?overview=full&geometries=geojson",
-        from[1], from[0], to[1], to[0]
-    );
+    if stops.len() < 2 {
+        return Err(none());
+    }
+    let through = stops.iter().map(|s| format!("{},{}", s[1], s[0])).collect::<Vec<_>>().join(";");
+    let url = format!("https://routing.openstreetmap.de/{profile}/route/v1/driving/{through}?overview=full&geometries=geojson");
     let found = get_json(&url).await.ok_or_else(none)?;
     let route = &found["routes"][0];
     let points: Vec<[f64; 2]> = route["geometry"]["coordinates"]
@@ -164,6 +166,65 @@ async fn wander(udid: String, lat: f64, lon: f64, name: Option<String>) -> Reply
         }
         Err(e) => {
             log(&format!("[{}] wander failed: {e}", short(&udid)));
+            Reply { ok: false, message: e.to_string() }
+        }
+    }
+}
+
+/// apple's route has no pause, so hold the phone where it should be by now and keep the rest for later, the page
+/// works out the rest since it already moves the phone's dot along the trip
+#[tauri::command]
+async fn pause(udid: String, points: Vec<[f64; 2]>) -> Reply {
+    let last = load_state().get(&udid).cloned().unwrap_or(Value::Null);
+    let Some(speed) = last["trip"]["speed"].as_f64() else {
+        return Reply { ok: false, message: "The iPhone isn't moving".into() };
+    };
+    let Some(&[lat, lon]) = points.first() else {
+        return Reply { ok: false, message: "The iPhone isn't moving".into() };
+    };
+    log(&format!("[{}] Pause pressed ({lat:.5}, {lon:.5})", short(&udid)));
+    match within_a_minute(engine::set_location(&udid, lat, lon)).await {
+        Ok(()) => {
+            // the spot it rests on once it's done, the destination or the middle of the wander
+            let paused = json!({ "points": points, "speed": speed, "lat": last["lat"], "lon": last["lon"] });
+            edit_state(|state| {
+                state.insert(udid, json!({ "lat": lat, "lon": lon, "name": last["name"], "paused": paused }));
+            });
+            Reply { ok: true, message: "Paused".into() }
+        }
+        Err(e) => {
+            log(&format!("[{}] pause failed: {e}", short(&udid)));
+            Reply { ok: false, message: e.to_string() }
+        }
+    }
+}
+
+#[tauri::command]
+async fn resume(udid: String) -> Reply {
+    let last = load_state().get(&udid).cloned().unwrap_or(Value::Null);
+    let paused = &last["paused"];
+    let points: Vec<[f64; 2]> = paused["points"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| Some([p[0].as_f64()?, p[1].as_f64()?]))
+        .collect();
+    let (Some(speed), true) = (paused["speed"].as_f64(), points.len() > 1) else {
+        return Reply { ok: false, message: "Nothing to resume".into() };
+    };
+    log(&format!("[{}] Resume pressed ({} points left)", short(&udid), points.len()));
+    let waypoints: Vec<(f64, f64)> = points.iter().map(|p| (p[0], p[1])).collect();
+    match within_a_minute(engine::play_route(&udid, &waypoints, speed)).await {
+        Ok(()) => {
+            let trip = json!({ "points": points, "speed": speed, "start": now_ms() });
+            let rest = json!({ "lat": paused["lat"], "lon": paused["lon"], "name": last["name"], "trip": trip });
+            edit_state(|state| {
+                state.insert(udid, rest);
+            });
+            Reply { ok: true, message: "On the move again".into() }
+        }
+        Err(e) => {
+            log(&format!("[{}] resume failed: {e}", short(&udid)));
             Reply { ok: false, message: e.to_string() }
         }
     }
@@ -343,6 +404,8 @@ fn main() {
             plan_route,
             start_route,
             wander,
+            pause,
+            resume,
             reveal_developer_mode,
             search,
             describe,

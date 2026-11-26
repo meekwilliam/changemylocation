@@ -31,21 +31,25 @@ const wanderCircle = L.circle([0, 0], { radius: WANDER_RADIUS, color: "#0a7aff",
 // each phone's blue dot, moved along its route or wander every second
 const dots = {};
 
-// route mode, the two ends, which one the next click fills in, and the planned route from the app
+// route mode, the start, any stops and the destination, which one the next click fills in, and the planned route
 let mode = "spot";
-let from = null;
-let to = null;
-let editing = "from";
+let stops = [null, null];
+let editing = 0;
 let travel = "walk";
 let route = null;
 let routing = false;
 let routeProblem = "";
+// metres a second picked on the slider, null goes at the route's own pace
+let customSpeed = null;
+// the start and destination included, the routing server takes only so many
+const MAX_STOPS = 8;
 const routeLine = L.polyline([], { color: "#0a7aff", weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" });
+const stopMarkers = L.layerGroup();
 const endStyle = (fill) => ({ radius: 8, color: "#ffffff", weight: 3, fillColor: fill, fillOpacity: 1 });
-const fromMarker = L.circleMarker([0, 0], endStyle("#22a55b"));
-const toMarker = L.circleMarker([0, 0], endStyle("#e5484d"));
 // metres a second, for when the route doesn't come with a travel time
 const USUAL_SPEED = { walk: 1.4, drive: 13 };
+// mph where the roads use it, km/h elsewhere, and the top of the slider in that unit
+const SPEED_UNIT = navigator.language === "en-US" ? { name: "mph", factor: 2.23694, top: 200 } : { name: "km/h", factor: 3.6, top: 300 };
 
 const api = () => window.bridge;
 const phone = () => phones.find((p) => p.udid === selectedId);
@@ -79,25 +83,34 @@ function metres(a, b) {
 let pcSpot = null;
 navigator.geolocation?.watchPosition((at) => { pcSpot = [at.coords.latitude, at.coords.longitude]; }, () => {}, { maximumAge: 60000 });
 
-// where a phone is pretending to be right now, it moves along its trip at a steady speed and stops at the end
+// the rest of a trip from where the phone should be by now, it moves at a steady speed and stops at the end
+function remaining(trip) {
+  let left = Math.max(0, Date.now() - trip.start) / 1000 * trip.speed;
+  let here = trip.points[0];
+  for (let i = 1; i < trip.points.length; i++) {
+    const next = trip.points[i];
+    const step = metres(here, next);
+    if (left < step && step > 0) {
+      const f = left / step;
+      return [[here[0] + (next[0] - here[0]) * f, here[1] + (next[1] - here[1]) * f], ...trip.points.slice(i)];
+    }
+    left -= step;
+    here = next;
+  }
+  return [here];
+}
+
+// where a phone is pretending to be right now
 function position(p) {
   const last = p.last;
   if (!last) return pcSpot;
   const trip = last.trip;
   if (!trip || !trip.points?.length) return [last.lat, last.lon];
-  let left = Math.max(0, Date.now() - trip.start) / 1000 * trip.speed;
-  let here = trip.points[0];
-  for (const next of trip.points.slice(1)) {
-    const step = metres(here, next);
-    if (left < step && step > 0) {
-      const f = left / step;
-      return [here[0] + (next[0] - here[0]) * f, here[1] + (next[1] - here[1]) * f];
-    }
-    left -= step;
-    here = next;
-  }
-  return here;
+  return remaining(trip)[0];
 }
+
+// on a route or wandering and not there yet
+const moving = (p) => !!p?.last?.trip?.points?.length && remaining(p.last.trip).length > 1;
 
 function moveDots() {
   for (const udid of Object.keys(dots)) {
@@ -157,7 +170,25 @@ function render() {
   if (spot && wandering) wanderCircle.setLatLng([spot.lat, spot.lon]).addTo(map);
   else wanderCircle.remove();
   renderRoute(p);
+  renderPause(p);
   moveDots();
+}
+
+// the pause button shows while the phone is moving or paused part way
+function renderPause(p) {
+  const paused = !!p?.last?.paused;
+  for (const b of [$("pause"), $("route-pause")]) {
+    b.hidden = !(paused || moving(p));
+    b.disabled = busy;
+    b.title = paused ? "Keep going from where it stopped" : "Stop moving here for now";
+    b.querySelector("use").setAttribute("href", paused ? "#i-play" : "#i-pause");
+  }
+}
+
+// how fast the phone will travel, the slider's pick or the route's own pace
+function speed() {
+  if (customSpeed) return customSpeed;
+  return route && route.duration > 0 && route.distance > 0 ? route.distance / route.duration : USUAL_SPEED[travel];
 }
 
 function renderRoute(p) {
@@ -166,18 +197,17 @@ function renderRoute(p) {
   for (const b of $("travel").children) b.classList.toggle("on", b.dataset.travel === travel);
   $("spot-view").hidden = on;
   $("route-view").hidden = !on;
-  for (const b of document.querySelectorAll(".end")) b.classList.toggle("on", b.dataset.end === editing);
-  for (const [which, end, name] of [["from", from, "from-name"], ["to", to, "to-name"]]) {
-    const active = which === editing;
-    $(name).textContent = end ? end.name : active ? "Click the map or search" : "Not set";
-    $(name).classList.toggle("unset", !end);
-  }
+  renderStops();
+  const shown = Math.max(1, Math.round(speed() * SPEED_UNIT.factor));
+  $("speed").value = Math.round(1000 * Math.log(shown) / Math.log(SPEED_UNIT.top));
+  $("speed-text").textContent = `${shown} ${SPEED_UNIT.name}`;
+  $("speed-auto").classList.toggle("off", !customSpeed);
   const info = $("route-info");
   info.classList.toggle("problem", !!routeProblem);
   const [infoIcon, infoText] = routing ? ["route", "Finding a route…"]
     : routeProblem ? ["alert", routeProblem]
-    : route ? [travel, `${distanceText(route.distance)} · ${timeText(route.duration)} ${travel === "walk" ? "walking" : "driving"}`]
-    : ["pin", "Click the map or search to pick each end."];
+    : route ? [travel, `${distanceText(route.distance)} · ${timeText(route.distance / speed())} ${travel === "walk" ? "walking" : "driving"}`]
+    : ["pin", "Click the map or search to pick each stop."];
   info.innerHTML = icon(infoIcon === "drive" ? "car" : infoIcon) + "<span></span>";
   info.lastChild.textContent = infoText;
   $("go").disabled = busy || routing || !p || !route;
@@ -185,10 +215,64 @@ function renderRoute(p) {
   $("route-reset").disabled = busy || !p;
   if (on && route) routeLine.setLatLngs(route.points).addTo(map);
   else routeLine.remove();
-  if (on && from) fromMarker.setLatLng([from.lat, from.lon]).addTo(map);
-  else fromMarker.remove();
-  if (on && to) toMarker.setLatLng([to.lat, to.lon]).addTo(map);
-  else toMarker.remove();
+  stopMarkers.clearLayers();
+  if (on) {
+    stops.forEach((s, i) => {
+      if (!s) return;
+      const last = i === stops.length - 1;
+      const m = i === 0 || last
+        ? L.circleMarker([s.lat, s.lon], endStyle(i === 0 ? "#22a55b" : "#e5484d"))
+        : L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "stop-pin", html: String(i), iconSize: [22, 22], iconAnchor: [11, 11] }) });
+      stopMarkers.addLayer(m);
+    });
+    stopMarkers.addTo(map);
+  } else stopMarkers.remove();
+}
+
+function renderStops() {
+  const list = $("stops");
+  list.innerHTML = "";
+  stops.forEach((s, i) => {
+    const first = i === 0, last = i === stops.length - 1;
+    const b = document.createElement("button");
+    b.className = "end" + (i === editing ? " on" : "");
+    b.innerHTML = (first ? '<svg class="icon from"><use href="#i-start"/></svg>'
+      : last ? '<svg class="icon to"><use href="#i-flag"/></svg>'
+      : `<span class="num">${i}</span>`)
+      + '<span class="end-text"><small></small><b></b></span>';
+    b.querySelector("small").textContent = first ? "From" : last ? "To" : `Stop ${i}`;
+    const name = b.querySelector("b");
+    name.textContent = s ? s.name : i === editing ? "Click the map or search" : "Not set";
+    name.classList.toggle("unset", !s);
+    if (!first && !last) {
+      const x = document.createElement("span");
+      x.className = "remove";
+      x.title = "Remove this stop";
+      x.innerHTML = icon("remove");
+      x.onclick = (e) => { e.stopPropagation(); removeStop(i); };
+      b.appendChild(x);
+    }
+    b.onclick = () => { editing = i; render(); };
+    list.appendChild(b);
+  });
+  $("add-stop").disabled = stops.length >= MAX_STOPS || !stops[stops.length - 1];
+}
+
+// a new empty stop just before the destination, picked next
+function addStop() {
+  if (stops.length >= MAX_STOPS) return;
+  stops.splice(stops.length - 1, 0, null);
+  editing = stops.length - 2;
+  route = null;
+  render();
+}
+
+function removeStop(i) {
+  if (i <= 0 || i >= stops.length - 1) return;
+  stops.splice(i, 1);
+  if (editing >= stops.length) editing = stops.length - 1;
+  else if (editing > i) editing--;
+  plan();
 }
 
 function distanceText(metres) {
@@ -206,25 +290,24 @@ function setMode(next) {
   mode = next;
   $("results").hidden = true;
   // start the route from the spot already picked for this phone, so the next click picks the destination
-  if (mode === "route" && !from && picked[key()]) {
-    from = { ...picked[key()] };
-    editing = "to";
+  if (mode === "route" && !stops[0] && picked[key()]) {
+    stops[0] = { ...picked[key()] };
+    editing = stops.length - 1;
   }
   render();
 }
 
-async function pickEnd(lat, lon, name, subtitle) {
+async function pickStop(lat, lon, name, subtitle) {
   const spot = { lat, lon, name: name || "Dropped pin", subtitle: subtitle || "" };
-  if (editing === "from") {
-    from = spot;
-    editing = "to";
-  } else {
-    to = spot;
-  }
+  const i = Math.min(editing, stops.length - 1);
+  stops[i] = spot;
+  // move on to the next empty stop, the last one stays picked so clicks keep moving the destination
+  const next = stops.findIndex((s) => !s);
+  editing = next >= 0 ? next : i;
   plan();
   if (!name) {
     const d = await api().describe(lat, lon);
-    if (from === spot || to === spot) {
+    if (stops.includes(spot)) {
       Object.assign(spot, d);
       render();
     }
@@ -234,13 +317,13 @@ async function pickEnd(lat, lon, name, subtitle) {
 async function plan() {
   route = null;
   routeProblem = "";
-  if (!from || !to) return render();
-  const want = { from, to, travel };
-  const stale = () => from !== want.from || to !== want.to || travel !== want.travel;
+  if (stops.some((s) => !s)) return render();
+  const want = { stops: stops.slice(), travel };
+  const stale = () => stops.length !== want.stops.length || stops.some((s, i) => s !== want.stops[i]) || travel !== want.travel;
   routing = true;
   render();
   try {
-    const found = await api().plan_route([from.lat, from.lon], [to.lat, to.lon], travel);
+    const found = await api().plan_route(stops.map((s) => [s.lat, s.lon]), travel);
     if (stale()) return;
     route = found;
     // a window that was hidden or resized can leave leaflet with a stale size, which zooms all the way in
@@ -259,11 +342,11 @@ async function plan() {
 async function startRoute() {
   const p = phone();
   if (!p || !route) return;
-  const speed = route.duration > 0 && route.distance > 0 ? route.distance / route.duration : USUAL_SPEED[travel];
-  const end = to;
-  const arrival = new Date(Date.now() + (route.distance / speed) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  await act(async () => {
-    const r = await api().start_route(p.udid, route.points, speed, end.name);
+  const pace = speed();
+  const end = stops[stops.length - 1];
+  const arrival = new Date(Date.now() + (route.distance / pace) * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const ok = await act(async () => {
+    const r = await api().start_route(p.udid, route.points, pace, end.name);
     if (r.ok) {
       // the route ends where the road does, a little off the clicked spot
       const [lat, lon] = route.points[route.points.length - 1];
@@ -272,6 +355,7 @@ async function startRoute() {
     }
     return r;
   });
+  if (ok) askForStarOnce();
 }
 
 function select(udid) {
@@ -291,7 +375,7 @@ function goTo(lat, lon, name, subtitle) {
 }
 
 async function pick(lat, lon, name, subtitle) {
-  if (mode === "route") return pickEnd(lat, lon, name, subtitle);
+  if (mode === "route") return pickStop(lat, lon, name, subtitle);
   // close enough in to see the small area it wanders
   if (mode === "wander" && map.getZoom() < 16) map.flyTo([lat, lon], 17);
   const k = key();
@@ -356,6 +440,7 @@ map.on("contextmenu", (e) => {
   menuAt = e.latlng.wrap();
   const noPhone = busy || !phone();
   for (const action of ["set", "wander", "reset"]) menu.querySelector(`[data-action="${action}"]`).disabled = noPhone;
+  menu.querySelector('[data-action="stop"]').disabled = stops.length >= MAX_STOPS || !stops[stops.length - 1];
   menu.hidden = false;
   // open at the pointer, flipped if it would run off the window
   const { clientX: x, clientY: y } = e.originalEvent;
@@ -379,9 +464,10 @@ menu.onclick = async (e) => {
   if (action === "pin") pick(lat, lng);
   if (action === "copy") copy(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
   if (action === "reset") await resetLocation();
-  if (action === "from" || action === "to") {
+  if (action === "from" || action === "stop" || action === "to") {
     mode = "route";
-    editing = action;
+    if (action === "stop") addStop();
+    editing = action === "from" ? 0 : action === "stop" ? stops.length - 2 : stops.length - 1;
     pick(lat, lng);
   }
 };
@@ -422,23 +508,43 @@ $("search").onsubmit = async (e) => {
 
 // one set or reset at a time, then show how it went
 async function act(call) {
-  if (busy) return;
+  if (busy) return false;
   busy = true; render();
   const r = await call();
   busy = false;
   showMessage(r.message, r.ok);
   await refresh();
+  return r.ok;
 }
 
 async function setLocation() {
   const p = phone(), spot = p && picked[p.udid];
-  if (spot) await act(() => api().set(p.udid, spot.lat, spot.lon, spot.name));
+  if (spot && await act(() => api().set(p.udid, spot.lat, spot.lon, spot.name))) askForStarOnce();
 }
 
 async function wanderAround() {
   const p = phone(), spot = p && picked[p.udid];
-  if (spot) await act(() => api().wander(p.udid, spot.lat, spot.lon, spot.name));
+  if (spot && await act(() => api().wander(p.udid, spot.lat, spot.lon, spot.name))) askForStarOnce();
 }
+
+// apple's route has no pause, so the phone is held where its dot is and the rest is kept for later
+async function pauseOrResume() {
+  const p = phone();
+  if (!p?.last) return;
+  if (p.last.paused) return act(() => api().resume(p.udid));
+  if (moving(p)) return act(() => api().pause(p.udid, remaining(p.last.trip)));
+}
+
+// once ever, a moment after the first location change that worked
+function askForStarOnce() {
+  try {
+    if (localStorage.getItem("askedForStar")) return;
+    localStorage.setItem("askedForStar", "1");
+  } catch { return; }
+  setTimeout(() => { $("star").hidden = false; }, 1500);
+}
+$("star-go").onclick = () => { $("star").hidden = true; api().open("https://github.com/meekwilliam/changemylocation/"); };
+$("star-later").onclick = () => { $("star").hidden = true; };
 
 async function resetLocation() {
   const p = phone();
@@ -451,12 +557,21 @@ $("set").onclick = () => (mode === "wander" ? wanderAround() : setLocation());
 $("reset").onclick = resetLocation;
 $("go").onclick = startRoute;
 $("route-reset").onclick = resetLocation;
+$("pause").onclick = pauseOrResume;
+$("route-pause").onclick = pauseOrResume;
+$("add-stop").onclick = addStop;
+$("speed").oninput = (e) => {
+  const shown = Math.max(1, Math.round(SPEED_UNIT.top ** (e.target.value / 1000)));
+  customSpeed = shown / SPEED_UNIT.factor;
+  render();
+};
+$("speed-auto").onclick = () => { customSpeed = null; render(); };
 $("modes").onclick = (e) => { const m = e.target.closest("button")?.dataset.mode; if (m) setMode(m); };
 $("travel").onclick = (e) => {
   const t = e.target.closest("button")?.dataset.travel;
-  if (t && t !== travel) { travel = t; plan(); }
+  // a walking pace makes no sense for a drive, or the other way round
+  if (t && t !== travel) { travel = t; customSpeed = null; plan(); }
 };
-for (const b of document.querySelectorAll(".end")) b.onclick = () => { editing = b.dataset.end; render(); };
 
 async function checkForUpdate() {
   const u = await api().update();

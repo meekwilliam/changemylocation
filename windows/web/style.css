@@ -253,3 +253,51 @@ button:disabled { opacity: 0.4; cursor: default; }
   /* darken openstreetmap's light tiles so the map matches the panels */
   .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.6); }
 }
+
+/* route stops, the start, any stops along the way and the destination */
+.end .num {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: #f5a524; color: #fff; font-size: 12px; font-weight: 700;
+}
+.end-text { flex: 1; }
+.end .remove { flex: none; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--faint); cursor: pointer; }
+.end .remove:hover { color: var(--muted); }
+.end .remove .icon { width: 18px; height: 18px; }
+#add-stop {
+  display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 0 14px; margin: -2px 0 0;
+  color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+#add-stop .icon { width: 15px; height: 15px; }
+.stop-pin {
+  display: grid !important; place-items: center; border-radius: 50%; background: #f5a524; color: #fff;
+  border: 2.5px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); font: 700 11px "Segoe UI", system-ui, sans-serif;
+}
+
+/* a slider from a slow walk to a fast drive */
+#speed-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+#speed { flex: 1; min-width: 0; accent-color: var(--accent); }
+#speed-text { min-width: 62px; text-align: right; font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums; }
+#speed-auto { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+#speed-auto.off { visibility: hidden; }
+.round.pause[hidden] { display: none; }
+
+/* asks for a star once, after the first location change that worked */
+#star { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; background: rgba(0, 0, 0, 0.25); }
+#star[hidden] { display: none; }
+#star .dialog {
+  width: min(360px, calc(100% - 36px)); padding: 26px 24px 20px; border-radius: 28px; text-align: center;
+  background: var(--glass-strong); animation: notice-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.star-badge {
+  display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 50%;
+  background: linear-gradient(180deg, #ffc940, #f5a524); color: #fff;
+}
+.star-badge .icon { width: 28px; height: 28px; stroke: none; }
+#star h2 { margin: 0 0 6px; font-size: 18px; }
+#star p { margin: 0; color: var(--muted); font-size: 13px; }
+#star .buttons { margin-top: 20px; }
+.secondary {
+  flex: 1; height: 46px; border: 1px solid var(--edge); border-radius: 999px; background: var(--track);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.secondary:hover { background: var(--hover); }

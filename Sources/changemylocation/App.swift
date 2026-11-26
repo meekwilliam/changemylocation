@@ -79,22 +79,37 @@ struct Trip: Codable {
 
     /// where the phone should be by now, it moves at a steady speed and stops at the last point
     func position(at date: Date) -> CLLocationCoordinate2D? {
-        guard let first = points.first else { return nil }
+        remaining(at: date).first
+    }
+
+    /// the rest of the way from where the phone should be by now, empty once it's there
+    func remaining(at date: Date) -> [CLLocationCoordinate2D] {
+        guard let first = points.first else { return [] }
         var left = max(0, date.timeIntervalSince(start)) * speed
         var here = CLLocation(latitude: first[0], longitude: first[1])
-        for p in points.dropFirst() {
+        for (i, p) in points.enumerated().dropFirst() {
             let next = CLLocation(latitude: p[0], longitude: p[1])
             let step = here.distance(from: next)
             if left < step, step > 0 {
                 let f = left / step
-                return CLLocationCoordinate2D(latitude: here.coordinate.latitude + (next.coordinate.latitude - here.coordinate.latitude) * f,
-                                              longitude: here.coordinate.longitude + (next.coordinate.longitude - here.coordinate.longitude) * f)
+                let at = CLLocationCoordinate2D(latitude: here.coordinate.latitude + (next.coordinate.latitude - here.coordinate.latitude) * f,
+                                                longitude: here.coordinate.longitude + (next.coordinate.longitude - here.coordinate.longitude) * f)
+                return [at] + points[i...].map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
             }
             left -= step
             here = next
         }
-        return here.coordinate
+        return [here.coordinate]
     }
+
+    func moving(at date: Date) -> Bool { remaining(at: date).count > 1 }
+}
+
+/// a route or wander stopped part way, the rest of it and where the phone rests once it's done
+struct Paused: Codable {
+    var points: [[Double]]
+    var speed: Double
+    var anchor: [Double]
 }
 
 enum Travel: Hashable {
@@ -107,7 +122,8 @@ enum Travel: Hashable {
     var usualSpeed: Double { self == .walk ? 1.4 : 13 }
 }
 
-enum End { case from, to }
+/// the most stops a route can have, the start and destination included, apple allows only so many lookups a minute
+let maxStops = 8
 
 // MARK: - manager
 
@@ -223,6 +239,13 @@ final class Phone: Identifiable {
             else { UserDefaults.standard.removeObject(forKey: tripKey) }
         }
     }
+    /// a route or wander on hold, the phone stays where it was paused until resumed
+    var paused: Paused? {
+        didSet {
+            if let paused, let data = try? JSONEncoder().encode(paused) { UserDefaults.standard.set(data, forKey: pausedKey) }
+            else { UserDefaults.standard.removeObject(forKey: pausedKey) }
+        }
+    }
     var busy = false
     var message = ""
     var messageIsError = false
@@ -231,6 +254,7 @@ final class Phone: Identifiable {
     var holding: Bool { held != nil }
     private var heldKey: String { "held.\(id)" }
     private var tripKey: String { "trip.\(id)" }
+    private var pausedKey: String { "paused.\(id)" }
 
     /// whether the phone is set to this spot or wandering around it, its dot shows the spot then
     func isResting(at c: CLLocationCoordinate2D) -> Bool {
@@ -252,10 +276,12 @@ final class Phone: Identifiable {
             // a restart clears the phone's simulation, so keep the last spot ready to set again in one click
             selected = Place(name: "Last location set", subtitle: "", coordinate: c)
             if let data = UserDefaults.standard.data(forKey: tripKey) { trip = try? JSONDecoder().decode(Trip.self, from: data) }
+            if let data = UserDefaults.standard.data(forKey: pausedKey) { paused = try? JSONDecoder().decode(Paused.self, from: data) }
         }
     }
 
-    func set(_ c: CLLocationCoordinate2D) async {
+    @discardableResult
+    func set(_ c: CLLocationCoordinate2D) async -> Bool {
         busy = true
         defer { busy = false }
         note("Set Location pressed (\(c.text(5)))")
@@ -263,6 +289,7 @@ final class Phone: Identifiable {
         if r.ok {
             held = c
             trip = nil
+            paused = nil
             if !r.messages.isEmpty { note(r.messages) }
             note("location handed to the phone; it holds it with nothing connected")
             show("Location set to \(c.text(5))", error: false)
@@ -270,10 +297,12 @@ final class Phone: Identifiable {
             note("couldn't set it: \(lastLine(r.messages))")
             show("Couldn't set \(name)'s location: \(lastLine(r.messages))", error: true)
         }
+        return r.ok
     }
 
     /// hands the phone a route, it travels it on its own and stays at the end, like a set location
-    func travel(_ points: [CLLocationCoordinate2D], speed: Double, seconds: TimeInterval, to end: CLLocationCoordinate2D) async {
+    @discardableResult
+    func travel(_ points: [CLLocationCoordinate2D], speed: Double, seconds: TimeInterval, to end: CLLocationCoordinate2D) async -> Bool {
         busy = true
         defer { busy = false }
         note("Start Route pressed (\(points.count) points, \(String(format: "%.1f", speed)) m/s, to \(end.text(5)))")
@@ -281,6 +310,7 @@ final class Phone: Identifiable {
         if r.ok {
             held = end
             trip = Trip(points, speed: speed)
+            paused = nil
             let arrival = Date().addingTimeInterval(seconds).formatted(date: .omitted, time: .shortened)
             note("route handed to the phone; it moves on its own")
             show("On the way, arriving around \(arrival)", error: false)
@@ -288,10 +318,48 @@ final class Phone: Identifiable {
             note("couldn't start the route: \(lastLine(r.messages))")
             show("Couldn't start \(name)'s route: \(lastLine(r.messages))", error: true)
         }
+        return r.ok
+    }
+
+    /// apple's route has no pause, so hold the phone where it should be by now and keep the rest for later
+    func pause() async {
+        guard let trip, let held else { return }
+        let rest = trip.remaining(at: Date())
+        guard rest.count > 1 else { return }
+        busy = true
+        defer { busy = false }
+        note("Pause pressed (\(rest[0].text(5)))")
+        let r = await Engine.run(["set", id, "\(rest[0].latitude)", "\(rest[0].longitude)"])
+        if r.ok {
+            self.held = rest[0]
+            self.trip = nil
+            paused = Paused(points: rest.map { [$0.latitude, $0.longitude] }, speed: trip.speed, anchor: [held.latitude, held.longitude])
+            show("Paused", error: false)
+        } else {
+            show("Couldn't pause \(name): \(lastLine(r.messages))", error: true)
+        }
+    }
+
+    func resume() async {
+        guard let paused else { return }
+        busy = true
+        defer { busy = false }
+        note("Resume pressed (\(paused.points.count) points left)")
+        let r = await Engine.run(["route", id, "\(paused.speed)"] + paused.points.map { "\($0[0]),\($0[1])" })
+        if r.ok {
+            let points = paused.points.map { CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) }
+            held = CLLocationCoordinate2D(latitude: paused.anchor[0], longitude: paused.anchor[1])
+            trip = Trip(points, speed: paused.speed)
+            self.paused = nil
+            show("On the move again", error: false)
+        } else {
+            show("Couldn't resume \(name): \(lastLine(r.messages))", error: true)
+        }
     }
 
     /// the phone walks slowly around the spot on its own for hours, the engine makes up the path
-    func wander(around c: CLLocationCoordinate2D) async {
+    @discardableResult
+    func wander(around c: CLLocationCoordinate2D) async -> Bool {
         busy = true
         defer { busy = false }
         note("Wander pressed (\(c.text(5)))")
@@ -305,12 +373,15 @@ final class Phone: Identifiable {
             }
             held = c
             trip = Trip(points, speed: speed)
+            paused = nil
             note("wander handed to the phone; it moves on its own")
             show("Wandering around \(c.text(5))", error: false)
         } else {
             note("couldn't start wandering: \(lastLine(r.messages))")
             show("Couldn't start \(name) wandering: \(lastLine(r.messages))", error: true)
+            return false
         }
+        return true
     }
 
     func clear() async {
@@ -321,6 +392,7 @@ final class Phone: Identifiable {
         if r.ok {
             held = nil
             trip = nil
+            paused = nil
             show("Back to the real location", error: false)
         } else {
             show("Couldn't reset \(name): \(lastLine(r.messages))", error: true)
@@ -423,34 +495,53 @@ struct ContentView: View {
     @State private var pointer: CGPoint?
     @FocusState private var searchFocused: Bool
     @State private var mode: Mode = .spot
-    @State private var from: Place?
-    @State private var to: Place?
-    /// which end of the route the next map click or search fills in
-    @State private var editing: End = .from
+    /// the start, any stops along the way, then the destination
+    @State private var stops: [Place?] = [nil, nil]
+    /// which of the stops the next map click or search fills in
+    @State private var editing = 0
     @State private var travel: Travel = .walk
-    @State private var route: MKRoute?
+    /// one apple route between each pair of stops
+    @State private var legs: [MKRoute] = []
     @State private var routing = false
     @State private var routeProblem: String?
+    /// metres a second picked on the slider, nil goes at the route's own pace
+    @State private var customSpeed: Double?
     @State private var now = Date()
     @State private var routeRequest = 0
     @State private var mac = Here()
+    @AppStorage("askedForStar") private var askedForStar = false
+    @State private var askingForStar = false
 
     private var phone: Phone? { manager.selectedPhone }
     private var current: Place? { phone?.selected ?? draft }
+    private var start: Place? { stops.first ?? nil }
+    private var destination: Place? { stops.last ?? nil }
+    private var distance: CLLocationDistance { legs.reduce(0) { $0 + $1.distance } }
+    /// how fast the phone will travel, the slider's pick or the pace apple expects
+    private var speed: Double {
+        if let customSpeed { return customSpeed }
+        let time = legs.reduce(0) { $0 + $1.expectedTravelTime }
+        return time > 0 && distance > 0 ? distance / time : travel.usualSpeed
+    }
 
     var body: some View {
         ZStack {
             MapReader { proxy in
                 Map(position: $camera) {
                     if mode == .route {
-                        if let route {
-                            MapPolyline(route.polyline).stroke(.blue, lineWidth: 6)
+                        ForEach(legs.indices, id: \.self) { i in
+                            MapPolyline(legs[i].polyline).stroke(.blue, lineWidth: 6)
                         }
-                        if let from {
-                            Marker("Start", systemImage: travel.icon, coordinate: from.coordinate).tint(.green)
-                        }
-                        if let to {
-                            Marker("Destination", systemImage: "flag.fill", coordinate: to.coordinate).tint(.red)
+                        ForEach(stops.indices, id: \.self) { i in
+                            if let stop = stops[i] {
+                                if i == 0 {
+                                    Marker("Start", systemImage: travel.icon, coordinate: stop.coordinate).tint(.green)
+                                } else if i == stops.count - 1 {
+                                    Marker("Destination", systemImage: "flag.fill", coordinate: stop.coordinate).tint(.red)
+                                } else {
+                                    Marker("Stop \(i)", monogram: Text("\(i)"), coordinate: stop.coordinate).tint(.orange)
+                                }
+                            }
                         }
                     } else {
                         ForEach(manager.phones) { p in
@@ -520,7 +611,7 @@ struct ContentView: View {
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
                         mode = .route
-                        editing = .from
+                        editing = 0
                         pick(c)
                     } label: {
                         Label("Route From Here", systemImage: "circle.circle")
@@ -529,7 +620,17 @@ struct ContentView: View {
                     Button {
                         guard let c = pointerCoordinate(proxy) else { return }
                         mode = .route
-                        editing = .to
+                        addStop()
+                        pick(c)
+                    } label: {
+                        Label("Add Stop Here", systemImage: "mappin.and.ellipse")
+                    }
+                    .disabled(destination == nil || stops.count >= maxStops)
+
+                    Button {
+                        guard let c = pointerCoordinate(proxy) else { return }
+                        mode = .route
+                        editing = stops.count - 1
                         pick(c)
                     } label: {
                         Label("Route To Here", systemImage: "flag")
@@ -587,13 +688,23 @@ struct ContentView: View {
         .onChange(of: mode) {
             results = []
             // start the route from wherever the phone is set to, so the next click picks the destination
-            if mode == .route && from == nil, let current {
-                from = current
-                editing = .to
+            if mode == .route && start == nil, let current {
+                stops[0] = current
+                editing = stops.count - 1
                 Task { await planRoute() }
             }
         }
-        .onChange(of: travel) { Task { await planRoute() } }
+        .onChange(of: travel) {
+            // a walking pace makes no sense for a drive, or the other way round
+            customSpeed = nil
+            Task { await planRoute() }
+        }
+        .alert("Enjoying changemylocation?", isPresented: $askingForStar) {
+            Button("Star on GitHub") { NSWorkspace.shared.open(URL(string: "https://github.com/meekwilliam/changemylocation")!) }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text("It's free and open source. A star on GitHub helps it grow, which keeps the updates and new features coming.")
+        }
         // with nothing picked, open on where the mac is rather than the default spot
         .onChange(of: mac.coordinate == nil) {
             if current == nil, let c = mac.coordinate { fly(to: c) }
@@ -845,6 +956,8 @@ struct ContentView: View {
                 .tint(.blue)
                 .disabled(current == nil || !canAct)
 
+                pauseButton
+
                 Button(action: reset) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 16, weight: .semibold))
@@ -859,24 +972,57 @@ struct ContentView: View {
         }
     }
 
+    /// shows while the phone is on a route or wandering, or paused part way
+    @ViewBuilder private var pauseButton: some View {
+        if let phone, phone.paused != nil || phone.trip?.moving(at: now) == true {
+            let paused = phone.paused != nil
+            Button {
+                Task { if paused { await phone.resume() } else { await phone.pause() } }
+            } label: {
+                Image(systemName: paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .controlSize(.large)
+            .help(paused ? "Keep going from where it stopped" : "Stop moving here for now")
+            .disabled(!canAct)
+        }
+    }
+
     private var routeBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(spacing: 6) {
-                endRow(.from)
-                endRow(.to)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 4) {
+                ForEach(stops.indices, id: \.self) { i in stopRow(i) }
+                Button(action: addStop) {
+                    Label("Add Stop", systemImage: "plus.circle.fill")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(stops.count >= maxStops || destination == nil)
+                .opacity(stops.count >= maxStops || destination == nil ? 0.4 : 1)
             }
 
             segmented($travel, [(.walk, "Walk", Travel.walk.icon), (.drive, "Drive", Travel.drive.icon)])
+
+            speedRow
 
             Group {
                 if routing {
                     Label("Finding a route…", systemImage: "hourglass")
                 } else if let routeProblem {
                     Label(routeProblem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                } else if let route {
-                    Label(summary(route), systemImage: travel.icon)
+                } else if !legs.isEmpty {
+                    Label(summary, systemImage: travel.icon)
                 } else {
-                    Label("Click the map or search to pick each end.", systemImage: "hand.point.up.left")
+                    Label("Click the map or search to pick each stop.", systemImage: "hand.point.up.left")
                 }
             }
             .font(.system(size: 13, design: .rounded))
@@ -901,7 +1047,9 @@ struct ContentView: View {
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
                 .tint(.blue)
-                .disabled(route == nil || routing || !canAct)
+                .disabled(legs.isEmpty || routing || !canAct)
+
+                pauseButton
 
                 Button(action: reset) {
                     Image(systemName: "arrow.counterclockwise")
@@ -917,16 +1065,23 @@ struct ContentView: View {
         }
     }
 
-    private func endRow(_ end: End) -> some View {
-        let place = end == .from ? from : to
-        let active = editing == end
-        return Button { editing = end } label: {
+    private func stopRow(_ i: Int) -> some View {
+        let place = stops[i]
+        let active = editing == i
+        let first = i == 0, last = i == stops.count - 1
+        return Button { editing = i } label: {
             HStack(spacing: 12) {
-                Image(systemName: end == .from ? "circle.circle.fill" : "flag.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(end == .from ? .green : .red)
+                Group {
+                    if first || last {
+                        Image(systemName: first ? "circle.circle.fill" : "flag.circle.fill")
+                            .foregroundStyle(first ? .green : .red)
+                    } else {
+                        Image(systemName: "\(i).circle.fill").foregroundStyle(.orange)
+                    }
+                }
+                .font(.system(size: 22))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(end == .from ? "From" : "To")
+                    Text(first ? "From" : last ? "To" : "Stop \(i)")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     Text(place?.name ?? (active ? "Click the map or search" : "Not set"))
@@ -935,9 +1090,16 @@ struct ContentView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if !first && !last {
+                    Button { removeStop(i) } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove this stop")
+                }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(active ? Color.blue.opacity(0.15) : .clear))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(active ? Color.blue.opacity(0.6) : .clear))
             .contentShape(Rectangle())
@@ -945,12 +1107,42 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func summary(_ route: MKRoute) -> String {
-        let distance = Measurement(value: route.distance, unit: UnitLength.meters)
+    /// a slider from a slow walk to a fast drive, spread out so the walking end isn't cramped
+    private var speedRow: some View {
+        let unit = Self.speedUnit
+        let top = unit.top
+        let value = Binding<Double>(
+            get: { log(max(1, speed * unit.factor)) / log(top) },
+            set: { customSpeed = max(1, pow(top, $0).rounded()) / unit.factor })
+        return HStack(spacing: 10) {
+            Image(systemName: "gauge.with.dots.needle.50percent")
+                .foregroundStyle(.secondary)
+            Slider(value: value, in: 0...1)
+                .controlSize(.small)
+            Text("\(Int((speed * unit.factor).rounded())) \(unit.name)")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .frame(minWidth: 62, alignment: .trailing)
+            Button("Auto") { customSpeed = nil }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.blue)
+                .opacity(customSpeed == nil ? 0 : 1)
+                .disabled(customSpeed == nil)
+                .help("Go at the usual \(travel.verb) pace")
+        }
+    }
+
+    /// mph where the roads use it, km/h elsewhere, the top of the slider in that unit
+    private static let speedUnit: (name: String, factor: Double, top: Double) =
+        Locale.current.measurementSystem == .us ? ("mph", 2.23694, 200) : ("km/h", 3.6, 300)
+
+    private var summary: String {
+        let length = Measurement(value: distance, unit: UnitLength.meters)
             .formatted(.measurement(width: .abbreviated, usage: .road))
-        let time = Duration.seconds(route.expectedTravelTime)
+        let time = Duration.seconds(max(60, distance / speed))
             .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
-        return "\(distance) · \(time) \(travel.verb)"
+        return "\(length) · \(time) \(travel.verb)"
     }
 
     private func pill(_ text: String, icon: String, color: Color) -> some View {
@@ -971,11 +1163,21 @@ struct ContentView: View {
     // MARK: actions
 
     private func setLocation(_ c: CLLocationCoordinate2D) {
-        if let phone { Task { await phone.set(c) } }
+        if let phone { Task { if await phone.set(c) { askForStarOnce() } } }
     }
 
     private func wanderAround(_ c: CLLocationCoordinate2D) {
-        if let phone { Task { await phone.wander(around: c) } }
+        if let phone { Task { if await phone.wander(around: c) { askForStarOnce() } } }
+    }
+
+    /// once ever, a moment after the first location change that worked
+    private func askForStarOnce() {
+        guard !askedForStar else { return }
+        askedForStar = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            askingForStar = true
+        }
     }
 
     private func notice(_ phone: Phone) -> some View {
@@ -1009,50 +1211,69 @@ struct ContentView: View {
         if let phone { phone.selected = place } else { draft = place }
     }
 
-    /// a picked or searched place goes to the spot, or to the end of the route being edited
+    /// a picked or searched place goes to the spot, or to the stop being edited
     private func put(_ place: Place) {
         guard mode == .route else { return setCurrent(place) }
-        if editing == .from {
-            from = place
-            editing = .to
-        } else {
-            to = place
-        }
+        let i = min(editing, stops.count - 1)
+        stops[i] = place
+        // move on to the next empty stop, the last one stays picked so clicks keep moving the destination
+        if let next = stops.indices.first(where: { stops[$0] == nil }) { editing = next } else { editing = i }
+        Task { await planRoute() }
+    }
+
+    /// a new empty stop just before the destination, picked next
+    private func addStop() {
+        guard stops.count < maxStops else { return }
+        stops.insert(nil, at: stops.count - 1)
+        editing = stops.count - 2
+        legs = []
+    }
+
+    private func removeStop(_ i: Int) {
+        guard i > 0, i < stops.count - 1 else { return }
+        stops.remove(at: i)
+        if editing >= stops.count { editing = stops.count - 1 } else if editing > i { editing -= 1 }
         Task { await planRoute() }
     }
 
     /// swaps in a place's looked-up name wherever it's still in use
     private func rename(_ old: Place, to new: Place) {
-        // the same place can be the spot and an end of the route at once
-        if from == old { from = new }
-        if to == old { to = new }
+        // the same place can be the spot and a stop on the route at once
+        for i in stops.indices where stops[i] == old { stops[i] = new }
         if current == old { setCurrent(new) }
     }
 
+    /// apple routes one leg at a time, so ask for each pair of stops in turn and join them up
     private func planRoute() async {
-        route = nil
+        legs = []
         routeProblem = nil
-        guard let from, let to else { return }
-        let wanted = (from.coordinate, to.coordinate, travel)
+        let picked = stops.compactMap { $0 }
+        guard picked.count == stops.count, picked.count > 1 else { return }
+        let wanted = (picked.map(\.coordinate), travel)
         routeRequest += 1
         let ticket = routeRequest
         routing = true
         // only the latest request clears it, an older one can finish while a newer one is still working
         defer { if routeRequest == ticket { routing = false } }
-        let request = MKDirections.Request()
-        request.source = MKMapItem(location: CLLocation(latitude: from.coordinate.latitude, longitude: from.coordinate.longitude), address: nil)
-        request.destination = MKMapItem(location: CLLocation(latitude: to.coordinate.latitude, longitude: to.coordinate.longitude), address: nil)
-        request.transportType = travel.transport
-        let found = try? await MKDirections(request: request).calculate().routes.first
-        // the ends or the travel mode changed while apple was working it out
+        var found: [MKRoute] = []
+        for (a, b) in zip(picked, picked.dropFirst()) {
+            let request = MKDirections.Request()
+            request.source = MKMapItem(location: CLLocation(latitude: a.coordinate.latitude, longitude: a.coordinate.longitude), address: nil)
+            request.destination = MKMapItem(location: CLLocation(latitude: b.coordinate.latitude, longitude: b.coordinate.longitude), address: nil)
+            request.transportType = travel.transport
+            guard let leg = try? await MKDirections(request: request).calculate().routes.first else { found = []; break }
+            found.append(leg)
+        }
+        // the stops or the travel mode changed while apple was working it out
         // compare spots, not places, a looked-up street name swaps in a renamed place at the same spot
-        guard same(self.from?.coordinate, wanted.0), same(self.to?.coordinate, wanted.1), travel == wanted.2 else { return }
-        guard let found else {
+        let latest = stops.compactMap { $0?.coordinate }
+        guard routeRequest == ticket, latest.count == wanted.0.count, zip(latest, wanted.0).allSatisfy({ same($0, $1) }), travel == wanted.1 else { return }
+        guard !found.isEmpty else {
             routeProblem = "Couldn't find a \(travel.verb) route between those places."
             return
         }
-        route = found
-        let box = found.polyline.boundingMapRect
+        legs = found
+        let box = found.dropFirst().reduce(found[0].polyline.boundingMapRect) { $0.union($1.polyline.boundingMapRect) }
         withAnimation(.easeInOut(duration: 0.8)) {
             camera = .rect(box.insetBy(dx: -box.width * 0.25 - 400, dy: -box.height * 0.25 - 400))
         }
@@ -1063,13 +1284,19 @@ struct ContentView: View {
     }
 
     private func startRoute() {
-        guard let phone, let route, let to else { return }
-        let time = route.expectedTravelTime
-        let speed = time > 0 && route.distance > 0 ? route.distance / time : travel.usualSpeed
-        let points = route.polyline.coordinateList
+        guard let phone, !legs.isEmpty, let destination else { return }
+        // each leg starts where the last one ended, drop the repeat
+        var points: [CLLocationCoordinate2D] = []
+        for leg in legs {
+            let list = leg.polyline.coordinateList
+            points += points.isEmpty ? list : Array(list.dropFirst())
+        }
+        let speed = speed
         Task {
-            await phone.travel(points, speed: speed, seconds: route.distance / speed, to: to.coordinate)
-            if !phone.messageIsError { phone.selected = to }
+            if await phone.travel(points, speed: speed, seconds: distance / speed, to: destination.coordinate) {
+                phone.selected = destination
+                askForStarOnce()
+            }
         }
     }
 

@@ -26,6 +26,11 @@
   <symbol id="i-start" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
   <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.3 5.3l-5.6 5.6a1.8 1.8 0 0 0 2.6 2.6l5.6-5.6a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.6-.5-.5-2.6z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13" stroke-width="3"/></symbol>
+  <symbol id="i-speed" viewBox="0 0 24 24"><path d="M4.2 17a8.5 8.5 0 1 1 15.6 0"/><path d="M12 13.5l4-4.5"/><circle cx="12" cy="14" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M12 8v8M8 12h8" stroke="#fff"/></symbol>
+  <symbol id="i-remove" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6" stroke="#fff"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-2.9-5.4 2.9 1.1-6-4.5-4.2 6.1-.8z" fill="currentColor"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></symbol>
 </svg>
 
@@ -61,19 +66,27 @@
       </div>
       <div class="buttons">
         <button id="set" class="primary" disabled><svg class="icon"><use id="set-icon" href="#i-arrow"/></svg><span id="set-text">Set Location</span></button>
+        <button id="pause" class="round pause" title="Stop moving here for now" hidden><svg class="icon"><use href="#i-pause"/></svg></button>
         <button id="reset" class="round" title="Reset to the real location" disabled><svg class="icon"><use href="#i-reset"/></svg></button>
       </div>
     </div>
     <div id="route-view" hidden>
-      <button class="end" data-end="from"><svg class="icon from"><use href="#i-start"/></svg><span class="end-text"><small>From</small><b id="from-name">Not set</b></span></button>
-      <button class="end" data-end="to"><svg class="icon to"><use href="#i-flag"/></svg><span class="end-text"><small>To</small><b id="to-name">Not set</b></span></button>
+      <div id="stops"></div>
+      <button id="add-stop"><svg class="icon"><use href="#i-plus"/></svg>Add Stop</button>
       <div id="travel" class="seg">
         <button data-travel="walk" class="on"><svg class="icon"><use href="#i-walk"/></svg>Walk</button>
         <button data-travel="drive"><svg class="icon"><use href="#i-car"/></svg>Drive</button>
       </div>
+      <div id="speed-row">
+        <svg class="icon muted"><use href="#i-speed"/></svg>
+        <input id="speed" type="range" min="0" max="1000" step="1">
+        <span id="speed-text"></span>
+        <button id="speed-auto" title="Go at the usual pace">Auto</button>
+      </div>
       <div id="route-info"></div>
       <div class="buttons">
         <button id="go" class="primary" disabled><svg class="icon"><use href="#i-play"/></svg><span id="go-text">Start Route</span></button>
+        <button id="route-pause" class="round pause" title="Stop moving here for now" hidden><svg class="icon"><use href="#i-pause"/></svg></button>
         <button id="route-reset" class="round" title="Stop and reset to the real location" disabled><svg class="icon"><use href="#i-reset"/></svg></button>
       </div>
     </div>
@@ -87,11 +100,24 @@
   <button data-action="pin"><svg class="icon"><use href="#i-pin"/></svg>Drop Pin Here</button>
   <hr>
   <button data-action="from"><svg class="icon"><use href="#i-start"/></svg>Route From Here</button>
+  <button data-action="stop"><svg class="icon"><use href="#i-pin"/></svg>Add Stop Here</button>
   <button data-action="to"><svg class="icon"><use href="#i-flag"/></svg>Route To Here</button>
   <hr>
   <button data-action="copy"><svg class="icon"><use href="#i-copy"/></svg>Copy Coordinates</button>
   <hr>
   <button data-action="reset"><svg class="icon"><use href="#i-reset"/></svg>Reset to Real GPS</button>
+</div>
+
+<div id="star" hidden>
+  <div class="dialog glass">
+    <div class="star-badge"><svg class="icon"><use href="#i-star"/></svg></div>
+    <h2>Enjoying changemylocation?</h2>
+    <p>It's free and open source. A star on GitHub helps it grow, which keeps the updates and new features coming.</p>
+    <div class="buttons">
+      <button id="star-later" class="secondary">Not Now</button>
+      <button id="star-go" class="primary">Star on GitHub</button>
+    </div>
+  </div>
 </div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
